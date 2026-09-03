@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+.next
+.expo
+.expo-shared
+coverage
+*.lock
+package-lock.json

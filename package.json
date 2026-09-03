@@ -1,0 +1,30 @@
+{
+  "name": "leaguelive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LeagueLive monorepo: backend API, admin dashboard, fan-facing web app, and reporter mobile app",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev:backend": "npm run dev -w @leaguelive/backend",
+    "dev:admin": "npm run dev -w @leaguelive/admin",
+    "dev:fan-web": "npm run dev -w @leaguelive/fan-web",
+    "dev:fan-app": "npm run start -w @leaguelive/fan-app",
+    "dev:reporter-app": "npm run start -w @leaguelive/reporter-app"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "16.3.4",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.9.0",
+    "next": "16.3.4",
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.5.0"
+  }
+}

@@ -1,0 +1,13 @@
+import type { NextFunction, Request, RequestHandler, Response } from "express";
+
+/**
+ * Express 4 doesn't forward rejected promises from async route handlers to
+ * the error middleware on its own; wrap every async handler with this.
+ */
+export function asyncHandler(
+  handler: (req: Request, res: Response, next: NextFunction) => Promise<void>,
+): RequestHandler {
+  return (req, res, next) => {
+    handler(req, res, next).catch(next);
+  };
+}
