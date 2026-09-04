@@ -10,6 +10,13 @@ import { isDuplicateKeyError } from "../utils/mongo-errors";
 import { organizationScopeFilter, type RequestingUser } from "../utils/tenant-scope";
 
 const ALL_PERMISSION_KEYS = PERMISSIONS.map((permission) => permission.key);
+// "Organization Admin (all permissions)" (FR6) means all permissions
+// *relevant to running one Organization* — platform scoped permissions
+// (like organization.manage) must stay out of this or every Organization
+// Admin would incidentally gain Platform Operator's cross-Organization reach.
+const ORGANIZATION_PERMISSION_KEYS = PERMISSIONS.filter((permission) => permission.scope === "organization").map(
+  (permission) => permission.key,
+);
 const REPORTER_PERMISSION_KEYS: PermissionKey[] = ["match.report"];
 
 export interface CreateRoleInput {
@@ -210,7 +217,7 @@ export async function seedDefaultRolesForOrganization(
 
   const organizationAdminRole = await Role.findOneAndUpdate(
     { organization_id: orgId, name: "Organization Admin" },
-    { $setOnInsert: { permission_keys: ALL_PERMISSION_KEYS } },
+    { $setOnInsert: { permission_keys: ORGANIZATION_PERMISSION_KEYS } },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
 
@@ -238,11 +245,11 @@ export async function seedPlatformOperatorRole(): Promise<RoleDocument> {
   );
 }
 
-export async function ensureRoleAssignment(userId: Types.ObjectId, role: RoleDocument): Promise<void> {
-  await UserRole.findOneAndUpdate(
+export async function ensureRoleAssignment(userId: Types.ObjectId, role: RoleDocument): Promise<UserRoleDocument> {
+  return UserRole.findOneAndUpdate(
     { user_id: userId, role_id: role._id },
     { $setOnInsert: { organization_id: role.organization_id } },
-    { upsert: true, setDefaultsOnInsert: true },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
   );
 }
 

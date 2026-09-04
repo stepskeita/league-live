@@ -4,7 +4,6 @@ import { withBaseOptions } from "./plugins/schema-options";
 
 export interface PlayerAttrs {
   organization_id: Types.ObjectId;
-  team_id: Types.ObjectId;
   name: string;
   position: PlayerPosition;
   date_of_birth: Date;
@@ -12,6 +11,10 @@ export interface PlayerAttrs {
 
 export interface PlayerDocument extends PlayerAttrs, Document {}
 
+// A Player is a person record, not tied to one fixed team: FR20 manages
+// rosters "per team per season", so which team(s) a player is on is tracked
+// by RosterEntry (roster-entry.model.ts), not a field here — the same
+// person can be on different teams' rosters across different seasons.
 const playerSchema = new Schema<PlayerDocument>(
   {
     organization_id: {
@@ -19,11 +22,6 @@ const playerSchema = new Schema<PlayerDocument>(
       ref: "Organization",
       required: true,
       index: true,
-    },
-    team_id: {
-      type: Schema.Types.ObjectId,
-      ref: "Team",
-      required: true,
     },
     name: {
       type: String,

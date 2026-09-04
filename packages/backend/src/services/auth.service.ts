@@ -1,11 +1,11 @@
 import { Organization } from "../models/organization.model";
 import { User, type UserDocument } from "../models/user.model";
 import { AppError } from "../utils/app-error";
-import { isDuplicateKeyError } from "../utils/mongo-errors";
-import { comparePassword, hashPassword } from "../utils/password";
+import { comparePassword } from "../utils/password";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getRefreshTokenUserId, revokeRefreshToken, storeRefreshToken } from "./refresh-token.service";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "./token.service";
+import { createUserAccount } from "./user.service";
 
 export interface AuthTokens {
   accessToken: string;
@@ -21,13 +21,6 @@ export interface SignupInput {
 }
 
 export async function signup(input: SignupInput): Promise<{ user: UserDocument; tokens: AuthTokens }> {
-  const email = input.email.toLowerCase();
-
-  const existing = await User.findOne({ "contact.email": email });
-  if (existing) {
-    throw new AppError("An account with this email already exists", 409);
-  }
-
   if (input.organization_id) {
     const organizationExists = await Organization.exists({ _id: input.organization_id });
     if (!organizationExists) {
@@ -35,22 +28,13 @@ export async function signup(input: SignupInput): Promise<{ user: UserDocument; 
     }
   }
 
-  const password_hash = await hashPassword(input.password);
-
-  let user: UserDocument;
-  try {
-    user = await User.create({
-      name: input.name,
-      contact: { email, phone: input.phone },
-      password_hash,
-      organization_id: input.organization_id ?? null,
-    });
-  } catch (err) {
-    if (isDuplicateKeyError(err)) {
-      throw new AppError("An account with this email already exists", 409);
-    }
-    throw err;
-  }
+  const user = await createUserAccount({
+    name: input.name,
+    email: input.email,
+    phone: input.phone,
+    password: input.password,
+    organization_id: input.organization_id ?? null,
+  });
 
   // Self-registration: the newly created user is its own actor.
   await recordAuditLogEntry({

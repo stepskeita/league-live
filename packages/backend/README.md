@@ -54,7 +54,9 @@ This covers auth mechanics only — issuing and verifying identity. Permission c
 
 Permissions (FR4) are a **fixed, code defined catalog** — see `PERMISSIONS` in `packages/shared/src/types/permission.ts` — never a database collection a user can edit. There's no CRUD for permissions; a new one only exists once a developer adds it here alongside the check it guards.
 
-Roles (FR5/FR6) are dynamic, organization scoped documents that hold any combination of permission keys from the catalog. A `Role.organization_id` of `null` means the role is platform scoped (applies across every Organization) rather than tied to one, which is how the Platform Operator's elevated access works — as an ordinary role holding every permission, not a hardcoded role-name check anywhere (NFR5).
+Each permission also carries a `scope`: `"organization"` (grantable within one Organization) or `"platform"` (only meaningful platform-wide — currently just `organization.manage`, FR1's onboard/list/manage-any-Organization capability). This matters for seeding: "Organization Admin (all permissions)" (FR6) means all *organization scoped* permissions, not literally the whole catalog — `ORGANIZATION_PERMISSION_KEYS` in `role.service.ts` filters by scope for exactly this reason. Folding a platform scoped permission into an Organization's own default admin role would make every Organization Admin an incidental Platform Operator.
+
+Roles (FR5/FR6) are dynamic, organization scoped documents that hold any combination of permission keys from the catalog. A `Role.organization_id` of `null` means the role is platform scoped (applies across every Organization) rather than tied to one, which is how the Platform Operator's elevated access works — as an ordinary role holding every permission (both scopes), not a hardcoded role-name check anywhere (NFR5).
 
 A user's **effective permissions** (FR7) are the union of every permission on every `UserRole` (a user ↔ role assignment) they hold — resolved by `getEffectivePermissions()` in `src/services/permission.service.ts`.
 
@@ -72,13 +74,94 @@ All of the above require `role.manage`, checked by `requirePermission()` in `src
 
 ### Seeding default roles
 
-`npm run seed:default-roles` backfills the two FR6 default roles — **Organization Admin** (every permission) and **Reporter** (`match.report` only) — for every Organization that doesn't have them yet. `seedDefaultRolesForOrganization()` in `role.service.ts` is what a future "onboard an Organization" endpoint should call directly for one Organization at creation time; both paths are idempotent and never overwrite a role's permissions if it already exists (so an Organization's own customization of its default roles is never clobbered by re-seeding).
+`npm run seed:default-roles` backfills the two FR6 default roles — **Organization Admin** (every organization scoped permission) and **Reporter** (`match.report` only) — for any Organization that doesn't have them yet, e.g. one created directly in the database rather than through `POST /organizations`. `seedDefaultRolesForOrganization()` in `role.service.ts` is the same function the onboarding endpoint below calls directly at creation time; both paths are idempotent and never overwrite a role's permissions if it already exists (so an Organization's own customization of its default roles is never clobbered by re-seeding).
 
-**Known gap:** nothing in this codebase yet creates an Organization through the API (only the model exists), so `seed:default-roles` currently has nothing to backfill until Organizations are created directly in the database or that onboarding endpoint is built.
+## Organization onboarding
+
+`POST /organizations` (FR1) is one call doing three things: create the Organization, seed its two default roles (`seedDefaultRolesForOrganization()`, above), and create + assign its first **Organization Admin** user (`ensureRoleAssignment()`, the same idempotent-assignment helper the Platform Operator seed script uses to bootstrap itself). Without that last step nobody in the new Organization would hold `role.manage`, and no further role assignment could ever happen there.
+
+```
+POST /organizations
+{
+  "name": "...", "type": "federation" | "confederation" | "league_operator" | "competition_organizer",
+  "country": "...", "confederation": "...",       // optional
+  "contact": { "email": "...", "phone": "..." },  // Organization's own contact
+  "admin": { "name": "...", "email": "...", "phone": "...", "password": "..." }  // its first user
+}
+→ 201 { organization, adminUser }
+```
+
+- `GET /organizations` / `GET /organizations/:organizationId`
+- `PATCH /organizations/:organizationId` — `{ name?, type?, country?, confederation?, contact? }`
+
+All four require `organization.manage` — a **platform scoped** permission (see above), so it's never in an Organization's own default roles; in practice only the Platform Operator role holds it. No delete/deactivate route exists yet — an Organization has too much cascading data (Clubs, Teams, Users, Roles, ...) hanging off its id for that to be a safe default without a real soft-delete design, which wasn't asked for here.
+
+Not wrapped in a transaction (same tradeoff as `deleteRole`'s cascading delete): if admin-account creation fails after the Organization and its default roles already exist, the Organization is left admin-less but intact and recoverable — assign an existing or new user to its Organization Admin role through the normal `/roles/:roleId/assignments` endpoint.
+
+## Rosters: Clubs, Teams, Venues, Players
+
+FR16/FR20, all gated behind **`roster.manage`** (an organization scoped permission — every Organization Admin has it by default). Standard CRUD, same `organizationScopeFilter()` / `resolveOrganizationScopeForCreate()` pattern as everything else: an org-scoped caller only ever sees or creates records in their own Organization; a Platform Operator must specify `organization_id` to create one (there's no "platform scoped" Club/Team/Venue/Player — every one of these always belongs to exactly one Organization).
+
+- `POST/GET /clubs`, `GET/PATCH/DELETE /clubs/:clubId` — `{ name }`. Deleting a Club that still has Teams referencing it is rejected (409) rather than cascading — a Club's Teams have independent value (their own roster, fixtures) that shouldn't disappear because the Club record did.
+- `POST/GET /venues`, `GET/PATCH/DELETE /venues/:venueId` — `{ name, location: { address?, city?, country? } }`. Same 409-if-referenced rule for Teams that have it as their home venue.
+- `POST/GET /teams`, `GET/PATCH/DELETE /teams/:teamId` — `{ name, club_id, category, venue_id? }`. `club_id` (and `venue_id`, if given) must reference a Club/Venue that exists **in the same Organization** — checked at the query layer in `team.service.ts`, not left to a bare id lookup. Deleting a Team cascades its roster entries (below) — those don't have independent value once the Team is gone, same as `deleteRole` cascading its `UserRole` assignments — but is rejected (409) if the Team is still entered in a Competition (see below), same "block, don't cascade" rule as Club/Venue.
+- `POST/GET /players`, `GET/PATCH/DELETE /players/:playerId` — `{ name, position, date_of_birth }`. A Player is a **person record**, not tied to one fixed team (see below) — deleting one cascades their roster entries the same way deleting a Team does.
+
+### Player rosters, per season (FR20)
+
+A player's roster membership is tracked separately from the player record itself, via `RosterEntry` (`team_id` + `player_id` + `season`), because FR20 asks for rosters "per team per season" — the same person can be on different teams' rosters in different seasons, which a single fixed `Player.team_id` field couldn't represent. (The original data-model pass gave `Player` a `team_id` field; this task removed it once building the roster endpoints on top of it exposed that it couldn't actually satisfy FR20 — nothing else depended on it yet.) `season` is a free-form trimmed string (e.g. `"2024/2025"`), matching how `Competition.season` is modeled in `docs/SRS.md` section 7 — there's no separate Season entity.
+
+- `GET /teams/:teamId/roster` — optional `?season=` filter, newest season first
+- `POST /teams/:teamId/roster` — `{ player_id, season }`. `player_id` must belong to the same Organization as the team. A `(team_id, player_id, season)` unique index blocks duplicate entries (409).
+- `DELETE /teams/:teamId/roster/:entryId`
+
+## Competitions (FR13-FR17)
+
+Gated behind **`competition.manage`** (organization scoped — every Organization Admin has it by default).
+
+- `POST/GET /competitions`, `GET/PATCH/DELETE /competitions/:competitionId` — `{ name, category, format: { type, config? }, ruleset?, season }`
+  - `category` is free-form, Organization-defined text (FR13), same as `Team.category` — not a fixed enum.
+  - `format.type` (FR14) is one of `COMPETITION_FORMATS` = `"league" | "knockout" | "group_and_knockout"`; `format.config` is deliberately unstructured (format-specific settings), defaulting to `{}`.
+  - `ruleset` (FR15: "configurable per competition, not hardcoded") is also unstructured — points-per-result, tiebreaker order, whatever the caller wants — with a sensible default (`{ points: { win: 3, draw: 1, loss: 0 }, tiebreakers: [...] }`) so callers aren't forced to specify one from scratch. Both `format.config` and `ruleset` are validated only as "must be a plain object," never their internal shape, per FR15.
+  - Deleting a Competition cascades its entries and Fixtures (below) — neither has independent value once the Competition is gone.
+
+### Competition entries (FR17)
+
+`CompetitionEntry` joins a Competition to a Team. `organization_id` on the join record is the **Competition's** owning Organization (the side managing entries), not necessarily the Team's — a competition can draw in teams from other Organizations on the platform, so unlike every other cross-reference in this codebase (`Team.club_id`, `RosterEntry.player_id`, ...) the Team lookup here is **deliberately not scoped** to the requesting user's Organization. `getCompetition()`'s scoped fetch is what still stops a caller from managing entries on a competition outside their access — only the Team side is intentionally open platform-wide.
+
+- `GET/POST /competitions/:competitionId/entries` — `{ team_id }`. A `(competition_id, team_id)` unique index blocks duplicate entries (409).
+- `DELETE /competitions/:competitionId/entries/:entryId` — rejected (409) if a Fixture still references this entry as its home or away side.
+
+## Fixtures (FR18/FR19/FR24)
+
+Unlike every other resource router, permissions differ **by route** here, so `requirePermission()` is applied per-route instead of once via `router.use()`:
+
+- `POST/GET /fixtures`, `GET/PATCH/DELETE /fixtures/:fixtureId` — gated behind **`fixture.manage`**. `{ competition_id, home_entry_id, away_entry_id, venue_id?, datetime, status? }`. `home_entry_id`/`away_entry_id` (docs/SRS.md section 7's "home entry, away entry") reference `CompetitionEntry`, not `Team` directly, and both must belong to the given `competition_id` — checked via `resolveEntryForCompetition()` in `fixture.service.ts`, not a bare id lookup. `venue_id`, if given, must belong to the competition's own Organization (`resolveVenueInOrganization()`, shared with `team.service.ts`). `status` defaults to `"scheduled"` — the full `"scheduled" | "in_progress" | "completed" | "cancelled"` enum exists so this field means something now, but the workflow that transitions through the middle two (starting/ending a match session, FR25) is out of scope here; this task only schedules and edits fixtures.
+- `PUT /fixtures/:fixtureId/reporter` — `{ user_id }`, `DELETE /fixtures/:fixtureId/reporter` — gated behind **`reporter.assign`** (FR19), a *separate* permission from `fixture.manage`. Assigning a reporter does not go through the general `PATCH` — it's its own action so a role can hold one permission without the other (e.g. someone who schedules fixtures but shouldn't decide who reports on them, or vice versa). The assigned user must belong to the fixture's Organization; nothing checks they hold any particular role or permission themselves (NFR5 — no hardcoded role-name check, and assignment shouldn't have to happen in a specific order relative to granting `match.report`).
+- `GET /fixtures/mine` — FR24: a Reporter sees only fixtures assigned to them. Requires only `authenticate()`, no specific permission — registered before `/:fixtureId` so Express doesn't match `"mine"` as an id.
+
+## League Systems, promotion & relegation (FR21-FR23)
+
+All gated behind **`competition.manage`**.
+
+- `POST/GET /league-systems`, `GET/PATCH/DELETE /league-systems/:leagueSystemId` — `{ name, scope, rules: { promote_count, relegate_count }, tiers? }`. `scope` is free-form (e.g. `"national"`), same pattern as `Team.category`. `rules` (FR22) applies uniformly at every adjacent tier boundary — FR21's own example, "top N promoted, bottom N relegated," describes one rule, not a per-boundary configuration. Deleting a League System doesn't touch the Competitions it links — it only *links* them (FR21), it doesn't own them, unlike e.g. a Competition owning its entries.
+- `PUT /league-systems/:leagueSystemId/tiers` — `{ competition_ids }` — the dedicated "link competitions into a league system" action. Replaces the whole ordered tier list in one call (array position = tier rank, index 0 = top tier — no separate tier-number field). Every id must be a Competition **in the same Organization**; duplicates are rejected.
+
+### Ending a season (FR22/FR23)
+
+`POST /league-systems/:leagueSystemId/end-season` — `{ season, standings: [{ competition_id, entries }], next_season_competition_ids }`, one `standings` entry and one `next_season_competition_ids` entry per tier, **in tier order**.
+
+**This is always a deliberate admin action.** There is no scheduled job, cron, or automatic trigger anywhere in this codebase that calls it — the platform has no reliable way to know a season is actually over (no calendar/season-tracking concept exists), so ending one is only ever a manual API call, per the brief overriding FR22's literal "applied automatically" wording.
+
+**Standings are input, not computed.** `entries` is the final order of `CompetitionEntry` ids for that tier's competition, best to worst, supplied directly by the caller. There's no match-result data anywhere yet (`Fixture` has no score, `MatchEvent`/live standings computation is FR25-31, not built) — building a real standings-computation engine ahead of that data existing would be premature, so "given a completed season's final standings" is taken literally: the admin provides the final order, and `CompetitionStanding` (a new, effectively immutable model — no update/delete route, fields `immutable: true`) locks it. A `(competition_id, season)` unique index stops the same tier/season from being locked twice (409).
+
+**`computePromotionRelegation()`** in `league-system.service.ts` is a pure function (no DB access) — given the League System's ordered tiers/rules and a locked standing for each tier, it returns the list of movements (which `CompetitionEntry` moves, from which competition, to which, promoted or relegated). Kept separate from the orchestration around it specifically so it's a discrete, independently testable unit.
+
+**`endSeason()`** is the orchestration: validates every tier's standings and the corresponding next-season competition up front (before any writes, to keep the non-transactional partial-failure window small), locks each tier's `CompetitionStanding`, calls `computePromotionRelegation()`, then creates a new `CompetitionEntry` in each moved team's new tier's *next season's* competition (their old entry is left alone — it's the historical record of that season). Only the affected (promoted/relegated) teams get a new entry created; teams staying in their tier are **not** automatically carried over — that's a different, simpler operation the brief didn't ask this endpoint to do.
 
 ## Audit log
 
-Every mutating request writes an `AuditLogEntry` (FR10): actor, action (`create` / `update` / `delete`), the resource type and id, before/after snapshots where relevant, and a timestamp. `recordAuditLogEntry()` in `src/services/audit-log.service.ts` is the one place that knows how to write one — `role.service.ts`'s create/update/delete/assign/unassign and `auth.service.ts`'s signup each call it once, right after their mutation succeeds, rather than each re-implementing the write. It's awaited as part of the request: if the audit write fails, the request fails too, rather than silently completing a mutation with no trail.
+Every mutating request writes an `AuditLogEntry` (FR10): actor, action (`create` / `update` / `delete`), the resource type and id, before/after snapshots where relevant, and a timestamp. `recordAuditLogEntry()` in `src/services/audit-log.service.ts` is the one place that knows how to write one — `role.service.ts`'s create/update/delete/assign/unassign, `organization.service.ts`'s create/update, `auth.service.ts`'s signup, `club`/`venue`/`team`/`player`/`roster.service.ts`'s create/update/delete, `competition`/`competition-entry`/`fixture.service.ts`'s create/update/delete (including reporter assignment, logged as a Fixture `update`), and `league-system.service.ts`'s create/update/delete/setTiers/endSeason (which itself writes one `CompetitionStanding` entry per tier plus one `CompetitionEntry` entry per promoted/relegated team) each call it once, right after their mutation succeeds, rather than each re-implementing the write. It's awaited as part of the request: if the audit write fails, the request fails too, rather than silently completing a mutation with no trail.
 
 A service call rather than response-intercepting middleware was the deliberate choice here — capturing "before" state generically from HTTP request/response would need to reverse-engineer domain knowledge the service layer already has directly (what the document looked like before the change), and awaiting the write before the response is sent is what makes "audit failure fails the request" possible at all; a middleware wrapping `res.json` can only fire the write after the response has already gone out.
 
@@ -91,6 +174,6 @@ Both require `audit.view` (FR12). An org-scoped caller always sees only their ow
 
 Note `organization_id` on an entry is the affected resource's Organization, not necessarily the actor's — when a Platform Operator acts on Organization X's data, that entry shows up in Organization X's own audit log too, which is what makes "view your own Organization's log" actually complete.
 
-**Scope note:** only mutating *business-data* endpoints are audited — signup (creates a `User`) and the Role/UserRole CRUD. Login/refresh/logout aren't, since they don't mutate a tracked resource with a meaningful before/after shape (there's nothing for FR10's "before and after values" to describe). Seed scripts also aren't audited — FR10 says "every mutating *request*," and seed scripts run outside any HTTP request as a one-off, developer-run operation.
+**Scope note:** only mutating *business-data* endpoints are audited — signup (creates a `User`), the Role/UserRole CRUD, Organization create/update (which itself writes three entries: the Organization, its first admin `User`, and the `UserRole` assigning them — see Organization onboarding, above), the Club/Venue/Team/Player/RosterEntry CRUD, the Competition/CompetitionEntry/Fixture CRUD, and the League System CRUD/tiers/end-season (above). Login/refresh/logout aren't, since they don't mutate a tracked resource with a meaningful before/after shape (there's nothing for FR10's "before and after values" to describe). Seed scripts also aren't audited — FR10 says "every mutating *request*," and seed scripts run outside any HTTP request as a one-off, developer-run operation.
 
 See [../../docs/SRS.md](../../docs/SRS.md) for functional requirements.
