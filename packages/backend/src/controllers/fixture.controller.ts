@@ -84,3 +84,25 @@ export async function unassignReporter(req: Request, res: Response): Promise<voi
   const fixture = await fixtureService.unassignReporter(requireUser(req), fixtureId);
   res.status(200).json({ fixture: fixture.toJSON() });
 }
+
+// --- FR25: match session start/end, restricted to the assigned reporter ---
+
+export async function startMatchSession(req: Request, res: Response): Promise<void> {
+  const { fixtureId } = fixtureParamsSchema.parse(req.params);
+  const fixture = await fixtureService.startMatchSession(requireUser(req), fixtureId);
+  res.status(200).json({ fixture: fixture.toJSON() });
+}
+
+export async function endMatchSession(req: Request, res: Response): Promise<void> {
+  const { fixtureId } = fixtureParamsSchema.parse(req.params);
+  const fixture = await fixtureService.endMatchSession(requireUser(req), fixtureId);
+  res.status(200).json({ fixture: fixture.toJSON() });
+}
+
+// --- FR28: post match confirmation, gated behind results.verify ---
+
+export async function confirmResult(req: Request, res: Response): Promise<void> {
+  const { fixtureId } = fixtureParamsSchema.parse(req.params);
+  const fixture = await fixtureService.confirmResult(requireUser(req), fixtureId);
+  res.status(200).json({ fixture: fixture.toJSON() });
+}

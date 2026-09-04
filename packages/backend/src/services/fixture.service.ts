@@ -3,6 +3,7 @@ import { Types } from "mongoose";
 import { CompetitionEntry, type CompetitionEntryDocument } from "../models/competition-entry.model";
 import type { CompetitionDocument } from "../models/competition.model";
 import { Fixture, type FixtureDocument } from "../models/fixture.model";
+import { MatchEvent } from "../models/match-event.model";
 import { User } from "../models/user.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getCompetition } from "./competition.service";
@@ -188,6 +189,137 @@ export async function unassignReporter(requestingUser: RequestingUser, fixtureId
   const before = fixture.toJSON();
 
   fixture.reporter_user_id = null;
+  await fixture.save();
+
+  await recordAuditLogEntry({
+    actor_user_id: requestingUser.id,
+    organization_id: fixture.organization_id,
+    action: "update",
+    resource_type: "Fixture",
+    resource_id: fixture._id,
+    before,
+    after: fixture.toJSON(),
+  });
+
+  return fixture;
+}
+
+// --- FR25-FR28: match reporting ---
+
+/**
+ * The authorization boundary for a Reporter's own actions (start/end
+ * session, log events) — not an organization-scoped permission check like
+ * everywhere else, but "are you *the* reporter this fixture was assigned
+ * to." Exported so match-event.service.ts can reuse it rather than
+ * reimplementing the same check.
+ */
+export function requireAssignedReporter(fixture: FixtureDocument, requestingUser: RequestingUser): void {
+  if (!fixture.reporter_user_id || fixture.reporter_user_id.toString() !== requestingUser.id) {
+    throw new AppError("You are not the assigned reporter for this fixture", 403);
+  }
+}
+
+export async function getFixtureForReporter(requestingUser: RequestingUser, fixtureId: string): Promise<FixtureDocument> {
+  const fixture = await Fixture.findById(fixtureId);
+  if (!fixture) {
+    throw new AppError("Fixture not found", 404);
+  }
+  requireAssignedReporter(fixture, requestingUser);
+  return fixture;
+}
+
+/** FR25: idempotent — retrying an already-started session is a no-op, not an error (FR27's offline-retry concern applies here too). */
+export async function startMatchSession(requestingUser: RequestingUser, fixtureId: string): Promise<FixtureDocument> {
+  const fixture = await getFixtureForReporter(requestingUser, fixtureId);
+
+  if (fixture.status === "in_progress") {
+    return fixture;
+  }
+  if (fixture.status !== "scheduled") {
+    throw new AppError(`Cannot start a match session for a fixture with status "${fixture.status}"`, 400);
+  }
+
+  const before = fixture.toJSON();
+  fixture.status = "in_progress";
+  fixture.started_at = new Date();
+  await fixture.save();
+
+  await recordAuditLogEntry({
+    actor_user_id: requestingUser.id,
+    organization_id: fixture.organization_id,
+    action: "update",
+    resource_type: "Fixture",
+    resource_id: fixture._id,
+    before,
+    after: fixture.toJSON(),
+  });
+
+  return fixture;
+}
+
+/** FR25: idempotent, same reasoning as startMatchSession. Ending a session does not itself lock the result — see confirmResult (FR28). */
+export async function endMatchSession(requestingUser: RequestingUser, fixtureId: string): Promise<FixtureDocument> {
+  const fixture = await getFixtureForReporter(requestingUser, fixtureId);
+
+  if (fixture.status === "completed") {
+    return fixture;
+  }
+  if (fixture.status !== "in_progress") {
+    throw new AppError(`Cannot end a match session for a fixture with status "${fixture.status}"`, 400);
+  }
+
+  const before = fixture.toJSON();
+  fixture.status = "completed";
+  fixture.ended_at = new Date();
+  await fixture.save();
+
+  await recordAuditLogEntry({
+    actor_user_id: requestingUser.id,
+    organization_id: fixture.organization_id,
+    action: "update",
+    resource_type: "Fixture",
+    resource_id: fixture._id,
+    before,
+    after: fixture.toJSON(),
+  });
+
+  return fixture;
+}
+
+/**
+ * FR28: results.verify gated, distinct from match.report — the reporter who
+ * covered the match and the person who confirms its official result don't
+ * have to be the same permission holder. Computes the final score by
+ * counting "goal" MatchEvents per side and locks it; once locked, no more
+ * MatchEvents may be logged (see match-event.service.ts).
+ */
+export async function confirmResult(requestingUser: RequestingUser, fixtureId: string): Promise<FixtureDocument> {
+  const fixture = await getFixture(requestingUser, fixtureId);
+
+  if (fixture.status !== "completed") {
+    throw new AppError("Fixture must be completed (its match session ended) before its result can be confirmed", 400);
+  }
+  if (fixture.result_locked_at) {
+    throw new AppError("This fixture's result is already locked", 409);
+  }
+
+  const [homeEntry, awayEntry] = await Promise.all([
+    CompetitionEntry.findById(fixture.home_entry_id),
+    CompetitionEntry.findById(fixture.away_entry_id),
+  ]);
+  if (!homeEntry || !awayEntry) {
+    throw new AppError("This fixture's competition entries could not be resolved", 400);
+  }
+
+  const [homeGoals, awayGoals] = await Promise.all([
+    MatchEvent.countDocuments({ fixture_id: fixture._id, type: "goal", team_id: homeEntry.team_id }),
+    MatchEvent.countDocuments({ fixture_id: fixture._id, type: "goal", team_id: awayEntry.team_id }),
+  ]);
+
+  const before = fixture.toJSON();
+  fixture.home_score = homeGoals;
+  fixture.away_score = awayGoals;
+  fixture.result_locked_at = new Date();
   await fixture.save();
 
   await recordAuditLogEntry({

@@ -17,6 +17,16 @@ export interface Fixture {
   // FR19: assigned via a dedicated reporter.assign gated action, not the
   // general fixture.manage update.
   reporter_user_id: string | null;
+  // FR25: set by the assigned reporter's start/end match session actions.
+  started_at: string | null;
+  ended_at: string | null;
+  // FR28: set only by the results.verify gated post-match confirmation,
+  // which computes these by counting "goal" MatchEvents per team. Null
+  // (unofficial) until confirmed; once set, the result is locked — see
+  // MatchEvent for why events themselves are then rejected.
+  home_score: number | null;
+  away_score: number | null;
+  result_locked_at: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -8,6 +8,7 @@ export * from "./types/roster-entry";
 export * from "./types/competition";
 export * from "./types/competition-entry";
 export * from "./types/fixture";
+export * from "./types/match-event";
 export * from "./types/league-system";
 export * from "./types/competition-standing";
 export * from "./types/user";

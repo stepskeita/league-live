@@ -42,7 +42,7 @@ export const PERMISSIONS = [
   { key: "reporter.assign", description: "Assign a reporter to a fixture.", scope: "organization" },
   {
     key: "match.report",
-    description: "Submit live match events and the post-match confirmation for an assigned fixture.",
+    description: "Start/end a match session and log live match events for an assigned fixture.",
     scope: "organization",
   },
   {

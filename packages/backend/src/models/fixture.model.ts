@@ -13,6 +13,15 @@ export interface FixtureAttrs {
   // FR19: set only via a dedicated reporter.assign gated action — see
   // fixture.service.ts's assignReporter/unassignReporter.
   reporter_user_id: Types.ObjectId | null;
+  // FR25: set by startMatchSession/endMatchSession.
+  started_at: Date | null;
+  ended_at: Date | null;
+  // FR28: set only by confirmResult (results.verify), which computes these
+  // from MatchEvent. Once result_locked_at is set, no more MatchEvents may
+  // be logged for this fixture.
+  home_score: number | null;
+  away_score: number | null;
+  result_locked_at: Date | null;
 }
 
 export interface FixtureDocument extends FixtureAttrs, Document {}
@@ -61,6 +70,28 @@ const fixtureSchema = new Schema<FixtureDocument>(
       ref: "User",
       default: null,
       index: true,
+    },
+    started_at: {
+      type: Date,
+      default: null,
+    },
+    ended_at: {
+      type: Date,
+      default: null,
+    },
+    home_score: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    away_score: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    result_locked_at: {
+      type: Date,
+      default: null,
     },
   },
   withBaseOptions<FixtureDocument>(),

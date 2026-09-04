@@ -5,6 +5,7 @@ export * from "./competition-entry.model";
 export * from "./competition-standing.model";
 export * from "./fixture.model";
 export * from "./league-system.model";
+export * from "./match-event.model";
 export * from "./organization.model";
 export * from "./permission.model";
 export * from "./player.model";
