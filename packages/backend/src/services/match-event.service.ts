@@ -5,6 +5,7 @@ import { MatchEvent, type MatchEventDocument } from "../models/match-event.model
 import { Player } from "../models/player.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getFixtureForReporter } from "./fixture.service";
+import { refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
 import { AppError } from "../utils/app-error";
 import { isDuplicateKeyError } from "../utils/mongo-errors";
 import type { RequestingUser } from "../utils/tenant-scope";
@@ -104,6 +105,10 @@ export async function createMatchEvent(
     resource_id: event._id,
     after: event.toJSON(),
   });
+
+  // FR29/FR30: only for a genuinely new event — a replayed idempotent
+  // submission was already broadcast the first time it was created.
+  await refreshAndBroadcastLiveMatchState(fixture._id.toString(), event.toJSON());
 
   return { event, created: true };
 }

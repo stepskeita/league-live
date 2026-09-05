@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import * as competitionEntryService from "../services/competition-entry.service";
 import * as competitionService from "../services/competition.service";
+import { computeCompetitionTable } from "../services/standings.service";
 import { requireUser } from "../utils/require-user";
 
 const formatSchema = z.object({
@@ -59,6 +60,19 @@ export async function deleteCompetition(req: Request, res: Response): Promise<vo
   const { competitionId } = competitionParamsSchema.parse(req.params);
   await competitionService.deleteCompetition(requireUser(req), competitionId);
   res.status(204).send();
+}
+
+/**
+ * FR31/FR34, public — no authenticate(), no permission. A league table is
+ * fan-facing (like GET /fixtures/:id/live), not an org-internal admin
+ * action like the rest of this router. Always computed fresh from confirmed
+ * fixtures — see standings.service.ts for why that's the correct reading of
+ * "incrementally as each result is confirmed".
+ */
+export async function getCompetitionStandings(req: Request, res: Response): Promise<void> {
+  const { competitionId } = competitionParamsSchema.parse(req.params);
+  const table = await computeCompetitionTable(competitionId);
+  res.status(200).json({ standings: table });
 }
 
 // --- FR17: this competition's entries ---

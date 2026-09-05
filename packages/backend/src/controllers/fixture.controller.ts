@@ -2,6 +2,7 @@ import { FIXTURE_STATUSES } from "@leaguelive/shared";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import * as fixtureService from "../services/fixture.service";
+import { getLiveMatchState } from "../services/live-match-state.service";
 import { requireUser } from "../utils/require-user";
 
 const fixtureParamsSchema = z.object({
@@ -105,4 +106,17 @@ export async function confirmResult(req: Request, res: Response): Promise<void> 
   const { fixtureId } = fixtureParamsSchema.parse(req.params);
   const fixture = await fixtureService.confirmResult(requireUser(req), fixtureId);
   res.status(200).json({ fixture: fixture.toJSON() });
+}
+
+/**
+ * FR30, public — no authenticate(), no permission. Live scores are
+ * fan-facing (FR32), not an org-internal admin action like everything else
+ * in this router. The initial fast-read for a client that just loaded a
+ * page; ongoing updates arrive over the Socket.io channel this same state
+ * is broadcast to (see socket.service.ts).
+ */
+export async function getFixtureLiveState(req: Request, res: Response): Promise<void> {
+  const { fixtureId } = fixtureParamsSchema.parse(req.params);
+  const state = await getLiveMatchState(fixtureId);
+  res.status(200).json({ liveMatchState: state });
 }

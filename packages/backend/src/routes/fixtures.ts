@@ -6,6 +6,7 @@ import {
   deleteFixture,
   endMatchSession,
   getFixture,
+  getFixtureLiveState,
   listFixtures,
   myAssignedFixtures,
   startMatchSession,
@@ -19,12 +20,16 @@ import { asyncHandler } from "../utils/async-handler";
 
 const router = Router();
 
-// Unlike most resource routers, permissions here differ by route: scheduling
-// (fixture.manage), reporter assignment (reporter.assign), match reporting
-// (match.report) and confirming a result (results.verify) are all separate
-// capabilities, and FR24's "my assigned fixtures" needs no permission beyond
-// being authenticated. So requirePermission is applied per route rather than
-// once via router.use().
+// FR30, public: no authenticate() at all. Registered before router.use(authenticate)
+// below — Express tries routes in registration order and stops at the first
+// match, so a request matching this specific path never reaches it.
+router.get("/:fixtureId/live", asyncHandler(getFixtureLiveState));
+
+// Everything else: permissions differ by route (scheduling is fixture.manage,
+// reporter assignment is reporter.assign, match reporting is match.report,
+// confirming a result is results.verify, and FR24's "my assigned fixtures"
+// needs no permission beyond being authenticated), so requirePermission is
+// applied per route rather than once alongside authenticate.
 router.use(authenticate);
 
 // FR24: must come before "/:fixtureId" or Express would match "mine" as an id.

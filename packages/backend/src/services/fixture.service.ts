@@ -3,10 +3,11 @@ import { Types } from "mongoose";
 import { CompetitionEntry, type CompetitionEntryDocument } from "../models/competition-entry.model";
 import type { CompetitionDocument } from "../models/competition.model";
 import { Fixture, type FixtureDocument } from "../models/fixture.model";
-import { MatchEvent } from "../models/match-event.model";
 import { User } from "../models/user.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getCompetition } from "./competition.service";
+import { refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
+import { countGoalsByTeam } from "./match-score.service";
 import { resolveVenueInOrganization } from "./venue.service";
 import { AppError } from "../utils/app-error";
 import { organizationScopeFilter, type RequestingUser } from "../utils/tenant-scope";
@@ -254,6 +255,8 @@ export async function startMatchSession(requestingUser: RequestingUser, fixtureI
     after: fixture.toJSON(),
   });
 
+  await refreshAndBroadcastLiveMatchState(fixture._id.toString());
+
   return fixture;
 }
 
@@ -283,6 +286,8 @@ export async function endMatchSession(requestingUser: RequestingUser, fixtureId:
     after: fixture.toJSON(),
   });
 
+  await refreshAndBroadcastLiveMatchState(fixture._id.toString());
+
   return fixture;
 }
 
@@ -303,18 +308,7 @@ export async function confirmResult(requestingUser: RequestingUser, fixtureId: s
     throw new AppError("This fixture's result is already locked", 409);
   }
 
-  const [homeEntry, awayEntry] = await Promise.all([
-    CompetitionEntry.findById(fixture.home_entry_id),
-    CompetitionEntry.findById(fixture.away_entry_id),
-  ]);
-  if (!homeEntry || !awayEntry) {
-    throw new AppError("This fixture's competition entries could not be resolved", 400);
-  }
-
-  const [homeGoals, awayGoals] = await Promise.all([
-    MatchEvent.countDocuments({ fixture_id: fixture._id, type: "goal", team_id: homeEntry.team_id }),
-    MatchEvent.countDocuments({ fixture_id: fixture._id, type: "goal", team_id: awayEntry.team_id }),
-  ]);
+  const { home: homeGoals, away: awayGoals } = await countGoalsByTeam(fixture);
 
   const before = fixture.toJSON();
   fixture.home_score = homeGoals;
@@ -331,6 +325,8 @@ export async function confirmResult(requestingUser: RequestingUser, fixtureId: s
     before,
     after: fixture.toJSON(),
   });
+
+  await refreshAndBroadcastLiveMatchState(fixture._id.toString());
 
   return fixture;
 }

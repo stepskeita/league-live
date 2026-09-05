@@ -1,4 +1,9 @@
-import { COMPETITION_FORMATS, type CompetitionFormat } from "@leaguelive/shared";
+import {
+  COMPETITION_FORMATS,
+  DEFAULT_STANDINGS_POINTS,
+  DEFAULT_STANDINGS_TIEBREAKERS,
+  type CompetitionFormat,
+} from "@leaguelive/shared";
 import { Schema, Types, model, type Document } from "mongoose";
 import { withBaseOptions } from "./plugins/schema-options";
 
@@ -70,8 +75,8 @@ const competitionSchema = new Schema<CompetitionDocument>(
     ruleset: {
       type: Schema.Types.Mixed,
       default: () => ({
-        points: { win: 3, draw: 1, loss: 0 },
-        tiebreakers: ["points", "goal_difference", "goals_for"],
+        points: { ...DEFAULT_STANDINGS_POINTS },
+        tiebreakers: [...DEFAULT_STANDINGS_TIEBREAKERS],
       }),
       validate: { validator: isPlainObject, message: "ruleset must be an object" },
     },

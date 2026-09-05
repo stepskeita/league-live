@@ -4,6 +4,7 @@ import {
   createCompetition,
   deleteCompetition,
   getCompetition,
+  getCompetitionStandings,
   listCompetitionEntries,
   listCompetitions,
   removeCompetitionEntry,
@@ -14,6 +15,11 @@ import { requirePermission } from "../middleware/require-permission";
 import { asyncHandler } from "../utils/async-handler";
 
 const router = Router();
+
+// FR31/FR34, public: registered before router.use(authenticate) below —
+// Express tries routes in registration order and stops at the first match,
+// so a request matching this specific path never reaches it.
+router.get("/:competitionId/standings", asyncHandler(getCompetitionStandings));
 
 // FR13/FR14/FR15: create/configure competitions. FR17: manage which Teams
 // are entered — both gated behind competition.manage.
