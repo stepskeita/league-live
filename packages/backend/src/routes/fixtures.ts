@@ -8,21 +8,31 @@ import {
   getFixture,
   getFixtureLiveState,
   listFixtures,
+  listLiveFixtures,
   myAssignedFixtures,
   startMatchSession,
   unassignReporter,
   updateFixture,
 } from "../controllers/fixture.controller";
-import { createMatchEvent, listMatchEvents } from "../controllers/match-event.controller";
+import {
+  createMatchEvent,
+  deleteMatchEvent,
+  listMatchEvents,
+  updateMatchEvent,
+} from "../controllers/match-event.controller";
 import { authenticate } from "../middleware/authenticate";
-import { requirePermission } from "../middleware/require-permission";
+import { requireAnyPermission, requirePermission } from "../middleware/require-permission";
 import { asyncHandler } from "../utils/async-handler";
 
 const router = Router();
 
-// FR30, public: no authenticate() at all. Registered before router.use(authenticate)
-// below — Express tries routes in registration order and stops at the first
-// match, so a request matching this specific path never reaches it.
+// FR30/FR32, public: no authenticate() at all. Registered before
+// router.use(authenticate) below — Express tries routes in registration
+// order and stops at the first match, so a request matching these specific
+// paths never reaches it. "/live" (one segment) is also registered here,
+// before "/:fixtureId" (also one segment, admin-gated) further down — same
+// ordering reason "/mine" is registered before "/:fixtureId".
+router.get("/live", asyncHandler(listLiveFixtures));
 router.get("/:fixtureId/live", asyncHandler(getFixtureLiveState));
 
 // Everything else: permissions differ by route (scheduling is fixture.manage,
@@ -52,8 +62,22 @@ router.post("/:fixtureId/start", requirePermission("match.report"), asyncHandler
 router.post("/:fixtureId/end", requirePermission("match.report"), asyncHandler(endMatchSession));
 
 // FR26/FR27: live event logging, idempotent on a client generated event id.
-router.get("/:fixtureId/events", requirePermission("match.report"), asyncHandler(listMatchEvents));
+// The GET is shared with FR39's verifier review — see
+// match-event.service.ts's listMatchEvents for how the two audiences are
+// authorized differently once past this gate.
+router.get(
+  "/:fixtureId/events",
+  requireAnyPermission("match.report", "results.verify"),
+  asyncHandler(listMatchEvents),
+);
 router.post("/:fixtureId/events", requirePermission("match.report"), asyncHandler(createMatchEvent));
+
+// FR39: a verifier reviewing and correcting events before the result is
+// locked — deliberately a different permission from match.report (the
+// reporter who logs events isn't necessarily who reviews them), org-scoped
+// rather than assigned-reporter-scoped like the routes above.
+router.patch("/:fixtureId/events/:eventId", requirePermission("results.verify"), asyncHandler(updateMatchEvent));
+router.delete("/:fixtureId/events/:eventId", requirePermission("results.verify"), asyncHandler(deleteMatchEvent));
 
 // FR28: locks the official result. Deliberately a different permission from
 // match.report — the reporter who covered the match and whoever confirms

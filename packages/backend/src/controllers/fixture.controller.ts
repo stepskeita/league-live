@@ -120,3 +120,21 @@ export async function getFixtureLiveState(req: Request, res: Response): Promise<
   const state = await getLiveMatchState(fixtureId);
   res.status(200).json({ liveMatchState: state });
 }
+
+const listLiveFixturesQuerySchema = z.object({
+  organization_id: z.string().min(1).optional(),
+  country: z.string().trim().min(1).optional(),
+  category: z.string().trim().min(1).optional(),
+});
+
+/**
+ * FR32: "Users can view live scores across all in-progress matches, across
+ * organizations, countries, and categories" — the listing getFixtureLiveState
+ * doesn't provide on its own (that one needs a fixture id you already have).
+ * Public, same as getFixtureLiveState.
+ */
+export async function listLiveFixtures(req: Request, res: Response): Promise<void> {
+  const query = listLiveFixturesQuerySchema.parse(req.query);
+  const fixtures = await fixtureService.listLiveFixtures(query);
+  res.status(200).json({ fixtures });
+}

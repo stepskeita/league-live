@@ -31,6 +31,34 @@ export function requirePermission(permission: PermissionKey): RequestHandler {
   };
 }
 
+/**
+ * Like requirePermission, but passes as soon as the caller holds *any* of
+ * the given keys — for the rare endpoint two differently-permissioned
+ * audiences both need (e.g. GET .../events, open to the assigned reporter
+ * via match.report and to a verifier via results.verify, but authorized
+ * differently for each once inside the handler — see
+ * match-event.service.ts's listMatchEvents).
+ */
+export function requireAnyPermission(...permissions: PermissionKey[]): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const { user } = req;
+    if (!user) {
+      next(new AppError("Not authenticated", 401));
+      return;
+    }
+
+    resolvePermissions(user)
+      .then((effective) => {
+        if (!permissions.some((permission) => effective.includes(permission))) {
+          next(new AppError("Insufficient permissions", 403));
+          return;
+        }
+        next();
+      })
+      .catch(next);
+  };
+}
+
 async function resolvePermissions(user: NonNullable<Request["user"]>): Promise<PermissionKey[]> {
   if (!user.permissions) {
     user.permissions = await getEffectivePermissions(user.id);

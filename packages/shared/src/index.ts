@@ -14,6 +14,8 @@ export * from "./types/realtime";
 export * from "./types/league-system";
 export * from "./types/competition-standing";
 export * from "./types/standings";
+export * from "./types/anomaly-flag";
+export * from "./types/discipline";
 export * from "./types/user";
 export * from "./types/permission";
 export * from "./types/role";

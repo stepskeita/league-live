@@ -1,8 +1,16 @@
+import type { PermissionKey } from "@leaguelive/shared";
 import { Types } from "mongoose";
 
 export interface RequestingUser {
   id: string;
   organization_id: string | null;
+  // Mirrors Express.Request["user"]["permissions"] (see types/express.d.ts)
+  // — populated once requirePermission()/requireAnyPermission() has
+  // resolved it, so a service that needs to branch on *which* permission
+  // the caller holds (e.g. match-event.service.ts's listMatchEvents, open
+  // to both a reporter and a verifier but authorized differently for each)
+  // doesn't have to re-fetch it.
+  permissions?: PermissionKey[];
 }
 
 /**

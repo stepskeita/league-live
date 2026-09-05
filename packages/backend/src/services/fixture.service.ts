@@ -1,12 +1,13 @@
-import type { FixtureStatus } from "@leaguelive/shared";
+import type { FixtureStatus, LiveFixtureSummary } from "@leaguelive/shared";
 import { Types } from "mongoose";
 import { CompetitionEntry, type CompetitionEntryDocument } from "../models/competition-entry.model";
-import type { CompetitionDocument } from "../models/competition.model";
+import { Competition, type CompetitionDocument } from "../models/competition.model";
 import { Fixture, type FixtureDocument } from "../models/fixture.model";
+import { Organization } from "../models/organization.model";
 import { User } from "../models/user.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getCompetition } from "./competition.service";
-import { refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
+import { getLiveMatchState, refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
 import { countGoalsByTeam } from "./match-score.service";
 import { resolveVenueInOrganization } from "./venue.service";
 import { AppError } from "../utils/app-error";
@@ -47,6 +48,52 @@ export async function listFixtures(
 /** FR24: a Reporter sees only fixtures assigned to them — no permission gate beyond being authenticated. */
 export async function listMyAssignedFixtures(requestingUser: RequestingUser): Promise<FixtureDocument[]> {
   return Fixture.find({ reporter_user_id: requestingUser.id }).sort({ datetime: 1 });
+}
+
+export interface ListLiveFixturesInput {
+  organization_id?: string;
+  country?: string;
+  category?: string;
+}
+
+/**
+ * FR32: fans browsing live scores across every in-progress fixture on the
+ * platform — not the single-fixture getFixtureLiveState, this is the
+ * listing it's meant to be reached from. Public, same as that endpoint.
+ * `country` and `category` aren't fields on Fixture itself (they live on
+ * Organization and Competition respectively), so they're resolved to a set
+ * of ids first rather than denormalized onto Fixture just for this filter.
+ */
+export async function listLiveFixtures(input: ListLiveFixturesInput): Promise<LiveFixtureSummary[]> {
+  const conditions: Record<string, unknown>[] = [{ status: "in_progress" }];
+
+  if (input.organization_id) {
+    conditions.push({ organization_id: new Types.ObjectId(input.organization_id) });
+  }
+  if (input.country) {
+    const organizationIds = await Organization.find({ country: input.country }).distinct("_id");
+    conditions.push({ organization_id: { $in: organizationIds } });
+  }
+  if (input.category) {
+    const competitionIds = await Competition.find({ category: input.category }).distinct("_id");
+    conditions.push({ competition_id: { $in: competitionIds } });
+  }
+
+  const filter = conditions.length === 1 ? conditions[0]! : { $and: conditions };
+  const fixtures = await Fixture.find(filter).sort({ datetime: 1 });
+
+  return Promise.all(
+    fixtures.map(async (fixture): Promise<LiveFixtureSummary> => ({
+      fixture_id: fixture._id.toString(),
+      organization_id: fixture.organization_id.toString(),
+      competition_id: fixture.competition_id.toString(),
+      home_entry_id: fixture.home_entry_id.toString(),
+      away_entry_id: fixture.away_entry_id.toString(),
+      venue_id: fixture.venue_id ? fixture.venue_id.toString() : null,
+      datetime: fixture.datetime.toISOString(),
+      liveMatchState: await getLiveMatchState(fixture._id.toString()),
+    })),
+  );
 }
 
 export async function getFixture(requestingUser: RequestingUser, fixtureId: string): Promise<FixtureDocument> {

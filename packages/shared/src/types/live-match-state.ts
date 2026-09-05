@@ -14,3 +14,18 @@ export interface LiveMatchState {
   result_locked_at: string | null;
   updated_at: string;
 }
+
+// FR32: one row of the public "browse every in-progress fixture" listing —
+// just enough fixture context (not the full Fixture record — notably no
+// reporter_user_id, which is an internal operational detail, not fan
+// facing) merged with its live score.
+export interface LiveFixtureSummary {
+  fixture_id: string;
+  organization_id: string;
+  competition_id: string;
+  home_entry_id: string;
+  away_entry_id: string;
+  venue_id: string | null;
+  datetime: string;
+  liveMatchState: LiveMatchState;
+}

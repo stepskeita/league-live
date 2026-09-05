@@ -1,4 +1,4 @@
-import { MATCH_EVENT_TYPES, type MatchEventType } from "@leaguelive/shared";
+import { CARD_COLORS, MATCH_EVENT_TYPES, type CardColor, type MatchEventType } from "@leaguelive/shared";
 import { Schema, Types, model, type Document } from "mongoose";
 import { withBaseOptions } from "./plugins/schema-options";
 
@@ -12,6 +12,8 @@ export interface MatchEventAttrs {
   minute: number;
   team_id: Types.ObjectId;
   player_id: Types.ObjectId | null;
+  // Required when type is "card" (FR41 needs it to be reliable), null otherwise.
+  card_color: CardColor | null;
   details: Record<string, unknown>;
 }
 
@@ -62,6 +64,11 @@ const matchEventSchema = new Schema<MatchEventDocument>(
       ref: "Player",
       default: null,
     },
+    card_color: {
+      type: String,
+      enum: CARD_COLORS,
+      default: null,
+    },
     details: {
       type: Schema.Types.Mixed,
       default: () => ({}),
@@ -75,5 +82,18 @@ const matchEventSchema = new Schema<MatchEventDocument>(
 // (fixture_id, client_event_id) must resolve to the same event, never a
 // duplicate.
 matchEventSchema.index({ fixture_id: 1, client_event_id: 1 }, { unique: true });
+
+// FR41 needs card severity to actually be present on every card event, and
+// nonsensical on every non-card event — a cross-field rule Mongoose's
+// per-field `enum`/`required` can't express on its own.
+matchEventSchema.pre("validate", function enforceCardColor(next) {
+  if (this.type === "card" && !this.card_color) {
+    this.invalidate("card_color", "card_color is required for a card event");
+  }
+  if (this.type !== "card" && this.card_color) {
+    this.invalidate("card_color", "card_color may only be set for a card event");
+  }
+  next();
+});
 
 export const MatchEvent = model<MatchEventDocument>("MatchEvent", matchEventSchema);

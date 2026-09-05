@@ -10,6 +10,7 @@ import competitionsRouter from "./routes/competitions";
 import fixturesRouter from "./routes/fixtures";
 import healthRouter from "./routes/health";
 import leagueSystemsRouter from "./routes/league-systems";
+import moderationRouter from "./routes/moderation";
 import organizationsRouter from "./routes/organizations";
 import playersRouter from "./routes/players";
 import rolesRouter from "./routes/roles";
@@ -33,6 +34,7 @@ export function createApp(): Express {
   app.use("/competitions", competitionsRouter);
   app.use("/fixtures", fixturesRouter);
   app.use("/league-systems", leagueSystemsRouter);
+  app.use("/moderation", moderationRouter);
   app.use("/audit-log-entries", auditLogEntriesRouter);
 
   app.use(notFoundHandler);

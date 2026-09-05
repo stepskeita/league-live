@@ -1,3 +1,4 @@
+export * from "./anomaly-flag.model";
 export * from "./audit-log-entry.model";
 export * from "./club.model";
 export * from "./competition.model";

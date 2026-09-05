@@ -1,11 +1,13 @@
-import type { MatchEventType } from "@leaguelive/shared";
+import type { CardColor, MatchEventType } from "@leaguelive/shared";
 import { Types } from "mongoose";
 import { CompetitionEntry } from "../models/competition-entry.model";
 import { MatchEvent, type MatchEventDocument } from "../models/match-event.model";
 import { Player } from "../models/player.model";
+import { detectMatchEventAnomalies } from "./anomaly-flag.service";
 import { recordAuditLogEntry } from "./audit-log.service";
-import { getFixtureForReporter } from "./fixture.service";
+import { getFixture, getFixtureForReporter } from "./fixture.service";
 import { refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
+import { getEffectivePermissions } from "./permission.service";
 import { AppError } from "../utils/app-error";
 import { isDuplicateKeyError } from "../utils/mongo-errors";
 import type { RequestingUser } from "../utils/tenant-scope";
@@ -16,6 +18,7 @@ export interface CreateMatchEventInput {
   minute: number;
   team_id: string;
   player_id?: string | null;
+  card_color?: CardColor | null;
   details?: Record<string, unknown>;
 }
 
@@ -27,9 +30,25 @@ export interface CreateMatchEventResult {
   created: boolean;
 }
 
+/**
+ * FR26/FR39: open to two audiences authorized differently — the assigned
+ * reporter (match.report) sees only their own fixture's events; a verifier
+ * (results.verify) can see any fixture's events within their Organization
+ * scope, to review before correcting (FR39) or confirming (FR28). The route
+ * gates on requireAnyPermission("match.report", "results.verify"); this is
+ * the data-layer check for *which* fixtures that actually grants.
+ */
 export async function listMatchEvents(requestingUser: RequestingUser, fixtureId: string): Promise<MatchEventDocument[]> {
-  const fixture = await getFixtureForReporter(requestingUser, fixtureId);
+  const fixture = await resolveFixtureForEventAccess(requestingUser, fixtureId);
   return MatchEvent.find({ fixture_id: fixture._id }).sort({ minute: 1, createdAt: 1 });
+}
+
+async function resolveFixtureForEventAccess(requestingUser: RequestingUser, fixtureId: string) {
+  const permissions = requestingUser.permissions ?? (await getEffectivePermissions(requestingUser.id));
+  if (permissions.includes("results.verify")) {
+    return getFixture(requestingUser, fixtureId);
+  }
+  return getFixtureForReporter(requestingUser, fixtureId);
 }
 
 /** FR26/FR27: logs a live match event. Idempotent on client_event_id — a queued-and-retried submission returns the original event rather than erroring or duplicating it. */
@@ -84,6 +103,7 @@ export async function createMatchEvent(
       minute: input.minute,
       team_id: teamId,
       player_id: playerId,
+      card_color: input.card_color ?? null,
       details: input.details ?? {},
     });
   } catch (err) {
@@ -110,5 +130,125 @@ export async function createMatchEvent(
   // submission was already broadcast the first time it was created.
   await refreshAndBroadcastLiveMatchState(fixture._id.toString(), event.toJSON());
 
+  // FR40, best-effort — never allowed to fail this request; see
+  // anomaly-flag.service.ts.
+  await detectMatchEventAnomalies(fixture, event);
+
   return { event, created: true };
+}
+
+export interface UpdateMatchEventInput {
+  type?: MatchEventType;
+  minute?: number;
+  team_id?: string;
+  player_id?: string | null;
+  card_color?: CardColor | null;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * FR39: a verifier reviewing and correcting an event before the result is
+ * locked. Deliberately org-scoped (getFixture), not assigned-reporter
+ * scoped — the person confirming/correcting a result doesn't have to be the
+ * reporter who covered it, same reasoning as confirmResult (FR28).
+ */
+export async function updateMatchEvent(
+  requestingUser: RequestingUser,
+  fixtureId: string,
+  eventId: string,
+  input: UpdateMatchEventInput,
+): Promise<MatchEventDocument> {
+  const fixture = await getFixture(requestingUser, fixtureId);
+  if (fixture.result_locked_at) {
+    throw new AppError("Cannot correct events for a fixture whose result is already locked", 409);
+  }
+
+  const event = await MatchEvent.findOne({ _id: eventId, fixture_id: fixture._id });
+  if (!event) {
+    throw new AppError("Match event not found", 404);
+  }
+  const before = event.toJSON();
+
+  if (input.team_id !== undefined) {
+    const [homeEntry, awayEntry] = await Promise.all([
+      CompetitionEntry.findById(fixture.home_entry_id),
+      CompetitionEntry.findById(fixture.away_entry_id),
+    ]);
+    if (!homeEntry || !awayEntry) {
+      throw new AppError("This fixture's competition entries could not be resolved", 400);
+    }
+    const teamId = new Types.ObjectId(input.team_id);
+    if (!teamId.equals(homeEntry.team_id) && !teamId.equals(awayEntry.team_id)) {
+      throw new AppError("team_id must be one of this fixture's two teams", 400);
+    }
+    event.team_id = teamId;
+  }
+
+  if (input.player_id !== undefined) {
+    if (input.player_id === null) {
+      event.player_id = null;
+    } else {
+      const player = await Player.findOne({ _id: input.player_id, organization_id: fixture.organization_id });
+      if (!player) {
+        throw new AppError("Player not found in this Organization", 400);
+      }
+      event.player_id = player._id;
+    }
+  }
+
+  if (input.type !== undefined) {
+    event.type = input.type;
+  }
+  if (input.minute !== undefined) {
+    event.minute = input.minute;
+  }
+  if (input.card_color !== undefined) {
+    event.card_color = input.card_color;
+  }
+  if (input.details !== undefined) {
+    event.details = input.details;
+  }
+
+  await event.save();
+
+  await recordAuditLogEntry({
+    actor_user_id: requestingUser.id,
+    organization_id: fixture.organization_id,
+    action: "update",
+    resource_type: "MatchEvent",
+    resource_id: event._id,
+    before,
+    after: event.toJSON(),
+  });
+
+  await refreshAndBroadcastLiveMatchState(fixture._id.toString());
+
+  return event;
+}
+
+/** FR39: removing an erroneous event before the result is locked. */
+export async function deleteMatchEvent(requestingUser: RequestingUser, fixtureId: string, eventId: string): Promise<void> {
+  const fixture = await getFixture(requestingUser, fixtureId);
+  if (fixture.result_locked_at) {
+    throw new AppError("Cannot correct events for a fixture whose result is already locked", 409);
+  }
+
+  const event = await MatchEvent.findOne({ _id: eventId, fixture_id: fixture._id });
+  if (!event) {
+    throw new AppError("Match event not found", 404);
+  }
+  const before = event.toJSON();
+
+  await event.deleteOne();
+
+  await recordAuditLogEntry({
+    actor_user_id: requestingUser.id,
+    organization_id: fixture.organization_id,
+    action: "delete",
+    resource_type: "MatchEvent",
+    resource_id: event._id,
+    before,
+  });
+
+  await refreshAndBroadcastLiveMatchState(fixture._id.toString());
 }
