@@ -21,3 +21,4 @@ export * from "./types/permission";
 export * from "./types/role";
 export * from "./types/user-role";
 export * from "./types/audit-log-entry";
+export * from "./api";
