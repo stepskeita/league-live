@@ -109,6 +109,17 @@ export async function confirmResult(req: Request, res: Response): Promise<void> 
 }
 
 /**
+ * Shared with GET /:fixtureId/events — same requireAnyPermission gate, same
+ * dual-audience resolution underneath (see fixture.service.ts's
+ * resolveFixtureForReporterOrVerifier).
+ */
+export async function getFixtureContext(req: Request, res: Response): Promise<void> {
+  const { fixtureId } = fixtureParamsSchema.parse(req.params);
+  const fixtureContext = await fixtureService.getFixtureContext(requireUser(req), fixtureId);
+  res.status(200).json({ fixtureContext });
+}
+
+/**
  * FR30, public — no authenticate(), no permission. Live scores are
  * fan-facing (FR32), not an org-internal admin action like everything else
  * in this router. The initial fast-read for a client that just loaded a

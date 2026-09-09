@@ -30,3 +30,19 @@ export interface Fixture {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface FixtureTeamSummary {
+  id: string;
+  name: string;
+}
+
+// The minimum a match.report/results.verify holder needs to render a
+// fixture meaningfully — home_entry_id/away_entry_id resolved to Team
+// {id, name} — without needing roster.manage/competition.manage access to
+// CompetitionEntry or Team directly. Deliberately just this: no player
+// rosters, no venue — see fixture.service.ts's getFixtureContext.
+export interface FixtureContext {
+  fixture_id: string;
+  home_team: FixtureTeamSummary;
+  away_team: FixtureTeamSummary;
+}

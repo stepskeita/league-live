@@ -6,6 +6,7 @@ import {
   deleteFixture,
   endMatchSession,
   getFixture,
+  getFixtureContext,
   getFixtureLiveState,
   listFixtures,
   listLiveFixtures,
@@ -60,6 +61,15 @@ router.delete("/:fixtureId/reporter", requirePermission("reporter.assign"), asyn
 // holder's.
 router.post("/:fixtureId/start", requirePermission("match.report"), asyncHandler(startMatchSession));
 router.post("/:fixtureId/end", requirePermission("match.report"), asyncHandler(endMatchSession));
+
+// The one read a reporter's own app needs to show more than raw ids —
+// resolved Team names for the fixture's two sides. Same dual-audience gate
+// and resolution as the events GET below.
+router.get(
+  "/:fixtureId/context",
+  requireAnyPermission("match.report", "results.verify"),
+  asyncHandler(getFixtureContext),
+);
 
 // FR26/FR27: live event logging, idempotent on a client generated event id.
 // The GET is shared with FR39's verifier review — see

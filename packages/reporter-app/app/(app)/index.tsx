@@ -1,57 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "expo-router";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { ApiRequestError, type Fixture } from "@leaguelive/shared";
 import { Button } from "../../components/Button";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { FixtureCard } from "../../components/FixtureCard";
 import { Screen } from "../../components/Screen";
 import { colors, spacing } from "../../constants/theme";
-import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
+import { useFixtures } from "../../lib/fixtures-context";
 
 export default function HomeScreen() {
   const { user, logout } = useAuth();
-  const [fixtures, setFixtures] = useState<Fixture[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async (): Promise<void> => {
-    setError(null);
-    try {
-      const { fixtures: mine } = await api.fixtures.listMine();
-      setFixtures(mine);
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Couldn't load your fixtures.");
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      setError(null);
-      try {
-        const { fixtures: mine } = await api.fixtures.listMine();
-        if (!cancelled) {
-          setFixtures(mine);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof ApiRequestError ? err.message : "Couldn't load your fixtures.");
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const onRefresh = async (): Promise<void> => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  };
+  const { fixtures, error, refreshing, refresh } = useFixtures();
+  const router = useRouter();
 
   const firstName = user?.name.split(" ")[0] ?? "there";
 
@@ -67,8 +27,10 @@ export default function HomeScreen() {
       <FlatList
         data={fixtures ?? []}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <FixtureCard fixture={item} />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+        renderItem={({ item }) => (
+          <FixtureCard fixture={item} onPress={() => router.push(`/fixtures/${item.id}`)} />
+        )}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.primary} />}
         contentContainerStyle={fixtures && fixtures.length > 0 ? undefined : styles.emptyContainer}
         ListEmptyComponent={
           fixtures === null ? null : (

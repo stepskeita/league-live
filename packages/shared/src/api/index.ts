@@ -1,10 +1,12 @@
 import { createApiClient, type ApiClientConfig } from "./client";
 import { createAuthApi } from "./auth";
 import { createFixturesApi } from "./fixtures";
+import { createMatchEventsApi } from "./match-events";
 
 export * from "./client";
 export * from "./auth";
 export * from "./fixtures";
+export * from "./match-events";
 
 /**
  * The single entry point frontends use: one client instance per app,
@@ -17,6 +19,7 @@ export function createLeagueLiveApiClient(config: ApiClientConfig) {
     client,
     auth: createAuthApi(client),
     fixtures: createFixturesApi(client),
+    matchEvents: createMatchEventsApi(client),
   };
 }
 

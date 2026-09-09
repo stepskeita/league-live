@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { Fixture, FixtureStatus } from "@leaguelive/shared";
 import { colors, radius, spacing } from "../constants/theme";
 
@@ -24,17 +24,21 @@ function formatDateTime(iso: string): { date: string; time: string } {
   };
 }
 
-// The backend's own read scope for a Reporter (GET /fixtures/mine) returns
-// ids, not resolved team/competition names — there's no endpoint a plain
-// match.report holder can call to look those up yet. So this card shows
-// what's actually available (when, and current status) rather than
-// fabricating a "Team A vs Team B" line this data can't back up.
-export function FixtureCard({ fixture }: { fixture: Fixture }) {
+// GET /fixtures/mine returns ids, not resolved team/competition names.
+// GET /fixtures/:id/context (see the match session screen) can resolve
+// team names now, but doing that per card here would mean one extra
+// request per row in this list — not worth it just for the list. So this
+// card shows what's already available (when, and current status).
+export function FixtureCard({ fixture, onPress }: { fixture: Fixture; onPress?: () => void }) {
   const { date, time } = formatDateTime(fixture.datetime);
   const statusColor = STATUS_COLOR[fixture.status];
 
   return (
-    <View style={styles.card}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole={onPress ? "button" : undefined}
+      style={({ pressed }) => [styles.card, pressed && onPress ? styles.pressed : null]}
+    >
       <View style={styles.row}>
         <View>
           <Text style={styles.date}>{date}</Text>
@@ -49,7 +53,7 @@ export function FixtureCard({ fixture }: { fixture: Fixture }) {
           {fixture.home_score} – {fixture.away_score}
         </Text>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -63,6 +67,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     minHeight: 72,
     justifyContent: "center",
+  },
+  pressed: {
+    opacity: 0.7,
   },
   row: {
     flexDirection: "row",

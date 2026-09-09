@@ -2,6 +2,7 @@ import { Redirect, Stack } from "expo-router";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { colors } from "../../constants/theme";
 import { useAuth } from "../../lib/auth-context";
+import { FixturesProvider } from "../../lib/fixtures-context";
 
 export default function AppLayout() {
   const { status } = useAuth();
@@ -18,7 +19,11 @@ export default function AppLayout() {
     return <Redirect href="/login" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <FixturesProvider>
+      <Stack screenOptions={{ headerShown: false }} />
+    </FixturesProvider>
+  );
 }
 
 const styles = StyleSheet.create({

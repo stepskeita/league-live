@@ -5,9 +5,8 @@ import { MatchEvent, type MatchEventDocument } from "../models/match-event.model
 import { Player } from "../models/player.model";
 import { detectMatchEventAnomalies } from "./anomaly-flag.service";
 import { recordAuditLogEntry } from "./audit-log.service";
-import { getFixture, getFixtureForReporter } from "./fixture.service";
+import { getFixture, getFixtureForReporter, resolveFixtureForReporterOrVerifier } from "./fixture.service";
 import { refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
-import { getEffectivePermissions } from "./permission.service";
 import { AppError } from "../utils/app-error";
 import { isDuplicateKeyError } from "../utils/mongo-errors";
 import type { RequestingUser } from "../utils/tenant-scope";
@@ -39,16 +38,8 @@ export interface CreateMatchEventResult {
  * the data-layer check for *which* fixtures that actually grants.
  */
 export async function listMatchEvents(requestingUser: RequestingUser, fixtureId: string): Promise<MatchEventDocument[]> {
-  const fixture = await resolveFixtureForEventAccess(requestingUser, fixtureId);
+  const fixture = await resolveFixtureForReporterOrVerifier(requestingUser, fixtureId);
   return MatchEvent.find({ fixture_id: fixture._id }).sort({ minute: 1, createdAt: 1 });
-}
-
-async function resolveFixtureForEventAccess(requestingUser: RequestingUser, fixtureId: string) {
-  const permissions = requestingUser.permissions ?? (await getEffectivePermissions(requestingUser.id));
-  if (permissions.includes("results.verify")) {
-    return getFixture(requestingUser, fixtureId);
-  }
-  return getFixtureForReporter(requestingUser, fixtureId);
 }
 
 /** FR26/FR27: logs a live match event. Idempotent on client_event_id — a queued-and-retried submission returns the original event rather than erroring or duplicating it. */

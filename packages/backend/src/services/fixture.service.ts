@@ -1,14 +1,16 @@
-import type { FixtureStatus, LiveFixtureSummary } from "@leaguelive/shared";
+import type { FixtureContext, FixtureStatus, LiveFixtureSummary } from "@leaguelive/shared";
 import { Types } from "mongoose";
 import { CompetitionEntry, type CompetitionEntryDocument } from "../models/competition-entry.model";
 import { Competition, type CompetitionDocument } from "../models/competition.model";
 import { Fixture, type FixtureDocument } from "../models/fixture.model";
 import { Organization } from "../models/organization.model";
+import { Team } from "../models/team.model";
 import { User } from "../models/user.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getCompetition } from "./competition.service";
 import { getLiveMatchState, refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
 import { countGoalsByTeam } from "./match-score.service";
+import { getEffectivePermissions } from "./permission.service";
 import { resolveVenueInOrganization } from "./venue.service";
 import { AppError } from "../utils/app-error";
 import { organizationScopeFilter, type RequestingUser } from "../utils/tenant-scope";
@@ -274,6 +276,57 @@ export async function getFixtureForReporter(requestingUser: RequestingUser, fixt
   }
   requireAssignedReporter(fixture, requestingUser);
   return fixture;
+}
+
+/**
+ * FR26/FR39's shared authorization: a verifier (results.verify) can reach
+ * any fixture within their Organization scope; a reporter (match.report)
+ * only their own assigned one. Lives here rather than in
+ * match-event.service.ts (which also uses it) because getFixtureContext
+ * below needs the exact same resolution.
+ */
+export async function resolveFixtureForReporterOrVerifier(
+  requestingUser: RequestingUser,
+  fixtureId: string,
+): Promise<FixtureDocument> {
+  const permissions = requestingUser.permissions ?? (await getEffectivePermissions(requestingUser.id));
+  if (permissions.includes("results.verify")) {
+    return getFixture(requestingUser, fixtureId);
+  }
+  return getFixtureForReporter(requestingUser, fixtureId);
+}
+
+/**
+ * The minimum a reporter's own app needs to render a match-session screen
+ * that isn't just raw ids: which two Teams this fixture is between. Nothing
+ * beyond that (no player rosters, no venue) — match-event.service.ts's
+ * createMatchEvent only *requires* team_id, and this task is explicitly
+ * about minimal required fields, so this endpoint resolves exactly the one
+ * thing that's otherwise unresolvable by a match.report holder (Team reads
+ * are gated behind roster.manage, CompetitionEntry reads behind
+ * competition.manage — neither of which a plain Reporter holds).
+ */
+export async function getFixtureContext(requestingUser: RequestingUser, fixtureId: string): Promise<FixtureContext> {
+  const fixture = await resolveFixtureForReporterOrVerifier(requestingUser, fixtureId);
+
+  const [homeEntry, awayEntry] = await Promise.all([
+    CompetitionEntry.findById(fixture.home_entry_id),
+    CompetitionEntry.findById(fixture.away_entry_id),
+  ]);
+  if (!homeEntry || !awayEntry) {
+    throw new AppError("This fixture's competition entries could not be resolved", 400);
+  }
+
+  const [homeTeam, awayTeam] = await Promise.all([Team.findById(homeEntry.team_id), Team.findById(awayEntry.team_id)]);
+  if (!homeTeam || !awayTeam) {
+    throw new AppError("This fixture's teams could not be resolved", 400);
+  }
+
+  return {
+    fixture_id: fixture._id.toString(),
+    home_team: { id: homeTeam._id.toString(), name: homeTeam.name },
+    away_team: { id: awayTeam._id.toString(), name: awayTeam.name },
+  };
 }
 
 /** FR25: idempotent — retrying an already-started session is a no-op, not an error (FR27's offline-retry concern applies here too). */
