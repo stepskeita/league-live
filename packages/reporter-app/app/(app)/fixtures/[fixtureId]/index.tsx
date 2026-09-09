@@ -1,22 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from "react-native";
-import { ApiRequestError, type CardColor, type FixtureContext, type MatchEvent, type MatchEventType } from "@leaguelive/shared";
+import { ApiRequestError, type FixtureContext, type MatchEvent } from "@leaguelive/shared";
 import { ActionTile } from "../../../../components/ActionTile";
 import { Button } from "../../../../components/Button";
 import { ErrorBanner } from "../../../../components/ErrorBanner";
 import { EventListItem } from "../../../../components/EventListItem";
 import { EventLogModal, type EventLogSubmission, type LoggableEventType } from "../../../../components/EventLogModal";
 import { Screen } from "../../../../components/Screen";
+import { SyncStatusBar } from "../../../../components/SyncStatusBar";
 import { colors, spacing } from "../../../../constants/theme";
 import { api } from "../../../../lib/api";
+import { useEventQueue } from "../../../../lib/event-queue-context";
 import { useFixtures } from "../../../../lib/fixtures-context";
-import { computeElapsedMinutes, computeMatchScore, generateClientEventId } from "../../../../lib/match-session";
+import { computeElapsedMinutes, computeMatchScore, generateClientEventId, mergeEventsForDisplay } from "../../../../lib/match-session";
 
 export default function MatchSessionScreen() {
   const { fixtureId } = useLocalSearchParams<{ fixtureId: string }>();
   const router = useRouter();
   const { getById, updateFixture } = useFixtures();
+  const { isOnline, syncing, getEntriesForFixture, enqueue, retry } = useEventQueue();
   const fixture = getById(fixtureId);
 
   const [context, setContext] = useState<FixtureContext | null>(null);
@@ -27,7 +30,6 @@ export default function MatchSessionScreen() {
   const [ending, setEnding] = useState(false);
 
   const [logType, setLogType] = useState<LoggableEventType | null>(null);
-  const [clientEventId, setClientEventId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoadError(null);
@@ -67,30 +69,24 @@ export default function MatchSessionScreen() {
     };
   }, [fixtureId]);
 
-  const openLogModal = (type: LoggableEventType) => {
-    setLogType(type);
-    setClientEventId(generateClientEventId());
-  };
+  const openLogModal = (type: LoggableEventType) => setLogType(type);
+  const closeLogModal = () => setLogType(null);
 
-  const closeLogModal = () => {
-    setLogType(null);
-    setClientEventId(null);
-  };
-
-  const submitEvent = useCallback(
-    async (type: MatchEventType, input: { team_id: string; minute: number; card_color?: CardColor }, id: string) => {
-      const { matchEvent } = await api.matchEvents.create(fixtureId, { ...input, type, client_event_id: id });
-      setEvents((prev) => (prev ? [...prev, matchEvent] : [matchEvent]));
-      return matchEvent;
-    },
-    [fixtureId],
-  );
-
+  // Offline-first: every log action writes to the local queue immediately
+  // (enqueue() persists to AsyncStorage before it resolves) and returns —
+  // it never waits on the network. Whether it actually reaches the backend
+  // right away or hours from now, the reporter sees it as "pending"
+  // instantly either way; see event-queue.ts for the sync engine.
   const handleModalSubmit = async (input: EventLogSubmission): Promise<void> => {
-    if (!logType || !clientEventId) {
+    if (!logType) {
       return;
     }
-    await submitEvent(logType, input, clientEventId);
+    await enqueue({
+      client_event_id: generateClientEventId(),
+      fixture_id: fixtureId,
+      type: logType,
+      ...input,
+    });
     closeLogModal();
   };
 
@@ -108,8 +104,12 @@ export default function MatchSessionScreen() {
           // team_id is required by the schema but meaningless for a
           // whole-match event — defaulting silently to the home team rather
           // than asking the reporter to pick one for no reason.
-          submitEvent(type, { team_id: context.home_team.id, minute }, generateClientEventId()).catch((err) => {
-            Alert.alert("Couldn't log this", err instanceof ApiRequestError ? err.message : "Please try again.");
+          void enqueue({
+            client_event_id: generateClientEventId(),
+            fixture_id: fixtureId,
+            type,
+            team_id: context.home_team.id,
+            minute,
           });
         },
       },
@@ -166,9 +166,14 @@ export default function MatchSessionScreen() {
     );
   }
 
-  const score = computeMatchScore(events, context);
-  const hasHalfTime = events.some((event) => event.type === "half_time");
-  const hasFullTime = events.some((event) => event.type === "full_time");
+  const queuedForFixture = getEntriesForFixture(fixtureId);
+  const displayEvents = mergeEventsForDisplay(events, queuedForFixture);
+  const pendingCount = displayEvents.filter((event) => event.syncStatus === "pending").length;
+  const failedCount = displayEvents.filter((event) => event.syncStatus === "failed").length;
+
+  const score = computeMatchScore(displayEvents, context);
+  const hasHalfTime = displayEvents.some((event) => event.type === "half_time");
+  const hasFullTime = displayEvents.some((event) => event.type === "full_time");
   const teamName = (teamId: string): string =>
     teamId === context.home_team.id ? context.home_team.name : teamId === context.away_team.id ? context.away_team.name : "—";
 
@@ -187,6 +192,8 @@ export default function MatchSessionScreen() {
             )}
             <Text style={styles.teamName}>{context.away_team.name}</Text>
           </View>
+
+          <SyncStatusBar isOnline={isOnline} syncing={syncing} pendingCount={pendingCount} failedCount={failedCount} />
 
           {actionError ? <ErrorBanner message={actionError} /> : null}
 
@@ -217,11 +224,16 @@ export default function MatchSessionScreen() {
             </View>
           ) : null}
 
-          {events.length > 0 ? (
+          {displayEvents.length > 0 ? (
             <View style={styles.eventList}>
               <Text style={styles.sectionTitle}>Events</Text>
-              {[...events].reverse().map((event) => (
-                <EventListItem key={event.id} event={event} teamName={teamName} />
+              {[...displayEvents].reverse().map((event) => (
+                <EventListItem
+                  key={event.client_event_id}
+                  event={event}
+                  teamName={teamName}
+                  onRetry={() => retry(event.client_event_id)}
+                />
               ))}
             </View>
           ) : null}

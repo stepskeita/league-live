@@ -9,13 +9,15 @@ import { Screen } from "../../../../components/Screen";
 import { colors, radius, spacing } from "../../../../constants/theme";
 import { api } from "../../../../lib/api";
 import { useAuth } from "../../../../lib/auth-context";
+import { useEventQueue } from "../../../../lib/event-queue-context";
 import { useFixtures } from "../../../../lib/fixtures-context";
-import { computeMatchScore } from "../../../../lib/match-session";
+import { computeMatchScore, mergeEventsForDisplay } from "../../../../lib/match-session";
 
 export default function ConfirmResultScreen() {
   const { fixtureId } = useLocalSearchParams<{ fixtureId: string }>();
   const { hasPermission } = useAuth();
   const { getById, updateFixture } = useFixtures();
+  const { getEntriesForFixture, retry } = useEventQueue();
   const fixture = getById(fixtureId);
 
   const [context, setContext] = useState<FixtureContext | null>(null);
@@ -92,11 +94,17 @@ export default function ConfirmResultScreen() {
     );
   }
 
+  const queuedForFixture = getEntriesForFixture(fixtureId);
+  const displayEvents = mergeEventsForDisplay(events, queuedForFixture);
+  const unsyncedCount = displayEvents.filter((event) => event.syncStatus !== "synced").length;
+
   const locked = fixture.result_locked_at !== null;
   // Once locked, the fixture's own score is the official source of truth —
   // not the locally recomputed one, even though they should always agree.
-  const score = locked ? { home: fixture.home_score ?? 0, away: fixture.away_score ?? 0 } : computeMatchScore(events, context);
+  const score = locked ? { home: fixture.home_score ?? 0, away: fixture.away_score ?? 0 } : computeMatchScore(displayEvents, context);
   const canConfirm = hasPermission("results.verify");
+  const teamName = (teamId: string): string =>
+    teamId === context.home_team.id ? context.home_team.name : teamId === context.away_team.id ? context.away_team.name : "—";
 
   return (
     <Screen scrollable>
@@ -117,6 +125,14 @@ export default function ConfirmResultScreen() {
           <ErrorBanner message="This match session hasn't been ended yet." />
         ) : (
           <>
+            {unsyncedCount > 0 ? (
+              <View style={styles.unsyncedBanner}>
+                <Text style={styles.unsyncedText}>
+                  ⚠️ {unsyncedCount} event{unsyncedCount === 1 ? " hasn't" : "s haven't"} synced from this device yet. Confirming now
+                  will lock a result that doesn&apos;t include{unsyncedCount === 1 ? " it" : " them"}.
+                </Text>
+              </View>
+            ) : null}
             {confirmError ? <ErrorBanner message={confirmError} /> : null}
             {canConfirm ? (
               <Button
@@ -134,16 +150,15 @@ export default function ConfirmResultScreen() {
           </>
         )}
 
-        {events.length > 0 ? (
+        {displayEvents.length > 0 ? (
           <View style={styles.eventList}>
             <Text style={styles.sectionTitle}>Review events</Text>
-            {[...events].reverse().map((event) => (
+            {[...displayEvents].reverse().map((event) => (
               <EventListItem
-                key={event.id}
+                key={event.client_event_id}
                 event={event}
-                teamName={(teamId) =>
-                  teamId === context.home_team.id ? context.home_team.name : teamId === context.away_team.id ? context.away_team.name : "—"
-                }
+                teamName={teamName}
+                onRetry={() => retry(event.client_event_id)}
               />
             ))}
           </View>
@@ -191,6 +206,20 @@ const styles = StyleSheet.create({
     color: "#15803d",
     fontSize: 14,
     fontWeight: "600",
+    textAlign: "center",
+  },
+  unsyncedBanner: {
+    backgroundColor: colors.dangerBackground,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  unsyncedText: {
+    color: colors.danger,
+    fontSize: 13,
+    lineHeight: 19,
     textAlign: "center",
   },
   waitingBanner: {

@@ -2,6 +2,7 @@ import { Redirect, Stack } from "expo-router";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { colors } from "../../constants/theme";
 import { useAuth } from "../../lib/auth-context";
+import { EventQueueProvider } from "../../lib/event-queue-context";
 import { FixturesProvider } from "../../lib/fixtures-context";
 
 export default function AppLayout() {
@@ -21,7 +22,9 @@ export default function AppLayout() {
 
   return (
     <FixturesProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      <EventQueueProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </EventQueueProvider>
     </FixturesProvider>
   );
 }
