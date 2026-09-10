@@ -1,0 +1,41 @@
+.title {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 0 var(--space-1);
+}
+
+.subtitle {
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-5);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+
+.cardTitle {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 var(--space-3);
+}
+
+.permissionList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.permissionChip {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+}

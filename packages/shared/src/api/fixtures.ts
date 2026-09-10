@@ -1,5 +1,5 @@
-import type { Fixture, FixtureContext } from "../types/fixture";
-import type { LiveMatchState } from "../types/live-match-state";
+import type { Fixture, FixtureContext, FixtureStatus } from "../types/fixture";
+import type { LiveFixtureSummary, LiveMatchState } from "../types/live-match-state";
 import type { ApiClient } from "./client";
 
 export interface ListFixturesResponse {
@@ -18,11 +18,43 @@ export interface LiveMatchStateResponse {
   liveMatchState: LiveMatchState;
 }
 
-// Reads/actions a Reporter's own app needs (FR24-FR28) — the admin-facing
-// fixture.manage CRUD isn't something this client has a consumer for yet.
-// Add to this module, following the same pattern, when one does.
+export interface ListLiveFixturesResponse {
+  fixtures: LiveFixtureSummary[];
+}
+
+export interface CreateFixtureInput {
+  competition_id: string;
+  home_entry_id: string;
+  away_entry_id: string;
+  venue_id?: string | null;
+  /** ISO date string. */
+  datetime: string;
+  status?: FixtureStatus;
+}
+
+export interface UpdateFixtureInput {
+  home_entry_id?: string;
+  away_entry_id?: string;
+  venue_id?: string | null;
+  datetime?: string;
+  status?: FixtureStatus;
+}
+
 export function createFixturesApi(client: ApiClient) {
   return {
+    // --- FR18, fixture.manage gated ---
+    list: (competitionId?: string) => client.get<ListFixturesResponse>("/fixtures", { competition_id: competitionId }),
+    get: (fixtureId: string) => client.get<FixtureResponse>(`/fixtures/${fixtureId}`),
+    create: (input: CreateFixtureInput) => client.post<FixtureResponse>("/fixtures", input),
+    update: (fixtureId: string, input: UpdateFixtureInput) => client.patch<FixtureResponse>(`/fixtures/${fixtureId}`, input),
+    delete: (fixtureId: string) => client.delete<void>(`/fixtures/${fixtureId}`),
+
+    // --- FR19, reporter.assign gated — a separate permission from fixture.manage ---
+    assignReporter: (fixtureId: string, userId: string) =>
+      client.put<FixtureResponse>(`/fixtures/${fixtureId}/reporter`, { user_id: userId }),
+    unassignReporter: (fixtureId: string) => client.delete<FixtureResponse>(`/fixtures/${fixtureId}/reporter`),
+
+    // --- FR24, a Reporter's own app ---
     /** FR24: fixtures assigned to the current authenticated Reporter. */
     listMine: () => client.get<ListFixturesResponse>("/fixtures/mine"),
     /** The two teams' {id, name} — see fixture.service.ts's getFixtureContext for why this exists. */
@@ -33,9 +65,12 @@ export function createFixturesApi(client: ApiClient) {
     end: (fixtureId: string) => client.post<FixtureResponse>(`/fixtures/${fixtureId}/end`),
     /** FR28: results.verify gated on the backend — the caller must check its own permissions before showing this action. */
     confirm: (fixtureId: string) => client.post<FixtureResponse>(`/fixtures/${fixtureId}/confirm`),
-    /** FR30/FR32, public — no token required. */
+
+    // --- FR30/FR32, public — no token required ---
     getLiveState: (fixtureId: string) =>
       client.get<LiveMatchStateResponse>(`/fixtures/${fixtureId}/live`, undefined, { auth: false }),
+    listLive: (query: { organization_id?: string; country?: string; category?: string } = {}) =>
+      client.get<ListLiveFixturesResponse>("/fixtures/live", query, { auth: false }),
   };
 }
 
