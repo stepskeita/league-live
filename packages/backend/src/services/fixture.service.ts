@@ -1,4 +1,4 @@
-import type { FixtureContext, FixtureStatus, LiveFixtureSummary } from "@leaguelive/shared";
+import type { FixtureContext, FixtureStatus, LiveFixtureSummary, PublicFixtureSummary } from "@leaguelive/shared";
 import { Types } from "mongoose";
 import { CompetitionEntry, type CompetitionEntryDocument } from "../models/competition-entry.model";
 import { Competition, type CompetitionDocument } from "../models/competition.model";
@@ -6,6 +6,7 @@ import { Fixture, type FixtureDocument } from "../models/fixture.model";
 import { Organization } from "../models/organization.model";
 import { Team } from "../models/team.model";
 import { User } from "../models/user.model";
+import { Venue } from "../models/venue.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getCompetition } from "./competition.service";
 import { getLiveMatchState, refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
@@ -84,18 +85,212 @@ export async function listLiveFixtures(input: ListLiveFixturesInput): Promise<Li
   const filter = conditions.length === 1 ? conditions[0]! : { $and: conditions };
   const fixtures = await Fixture.find(filter).sort({ datetime: 1 });
 
+  const enrichmentById = await resolveFixtureEnrichment(fixtures);
   return Promise.all(
-    fixtures.map(async (fixture): Promise<LiveFixtureSummary> => ({
-      fixture_id: fixture._id.toString(),
-      organization_id: fixture.organization_id.toString(),
-      competition_id: fixture.competition_id.toString(),
-      home_entry_id: fixture.home_entry_id.toString(),
-      away_entry_id: fixture.away_entry_id.toString(),
-      venue_id: fixture.venue_id ? fixture.venue_id.toString() : null,
-      datetime: fixture.datetime.toISOString(),
-      liveMatchState: await getLiveMatchState(fixture._id.toString()),
-    })),
+    fixtures.map(async (fixture): Promise<LiveFixtureSummary> => {
+      const enrichment = enrichmentById.get(fixture._id.toString());
+      return {
+        fixture_id: fixture._id.toString(),
+        organization_id: fixture.organization_id.toString(),
+        organization_name: enrichment?.organization_name ?? "Unknown",
+        competition_id: fixture.competition_id.toString(),
+        competition_name: enrichment?.competition_name ?? "Unknown",
+        category: enrichment?.category ?? "",
+        season: enrichment?.season ?? "",
+        home_team: enrichment?.home_team ?? { id: fixture.home_entry_id.toString(), name: "Unknown" },
+        away_team: enrichment?.away_team ?? { id: fixture.away_entry_id.toString(), name: "Unknown" },
+        venue: enrichment?.venue ?? null,
+        datetime: fixture.datetime.toISOString(),
+        liveMatchState: await getLiveMatchState(fixture._id.toString()),
+      };
+    }),
   );
+}
+
+export interface BrowseFixturesInput {
+  organization_id?: string;
+  country?: string;
+  confederation?: string;
+  competition_id?: string;
+  category?: string;
+  team_id?: string;
+  /** YYYY-MM-DD — matches any fixture within that calendar day, UTC. */
+  date?: string;
+  status?: FixtureStatus;
+  page?: number;
+  limit?: number;
+}
+
+export interface BrowseFixturesResult {
+  fixtures: PublicFixtureSummary[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+const DEFAULT_BROWSE_LIMIT = 20;
+const MAX_BROWSE_LIMIT = 100;
+
+/**
+ * FR33: fans browsing every fixture and result on the platform, filterable
+ * across every dimension FR33 names — the broader counterpart to
+ * listLiveFixtures above, which only covers in-progress matches and a
+ * narrower filter set (FR32). None of country/confederation/category/
+ * team_id are fields on Fixture itself, so — same approach as
+ * listLiveFixtures — each is resolved to a set of ids first rather than
+ * denormalized onto Fixture just for this filter. Public, same as every
+ * other fan-facing read in this file.
+ */
+export async function browseFixtures(input: BrowseFixturesInput): Promise<BrowseFixturesResult> {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (input.organization_id) {
+    conditions.push({ organization_id: new Types.ObjectId(input.organization_id) });
+  }
+  if (input.country || input.confederation) {
+    const organizationFilter: Record<string, unknown> = {};
+    if (input.country) {
+      organizationFilter.country = input.country;
+    }
+    if (input.confederation) {
+      organizationFilter.confederation = input.confederation;
+    }
+    const organizationIds = await Organization.find(organizationFilter).distinct("_id");
+    conditions.push({ organization_id: { $in: organizationIds } });
+  }
+  if (input.competition_id) {
+    conditions.push({ competition_id: new Types.ObjectId(input.competition_id) });
+  }
+  if (input.category) {
+    const competitionIds = await Competition.find({ category: input.category }).distinct("_id");
+    conditions.push({ competition_id: { $in: competitionIds } });
+  }
+  if (input.team_id) {
+    const entryIds = await CompetitionEntry.find({ team_id: input.team_id }).distinct("_id");
+    conditions.push({ $or: [{ home_entry_id: { $in: entryIds } }, { away_entry_id: { $in: entryIds } }] });
+  }
+  if (input.date) {
+    const start = new Date(`${input.date}T00:00:00.000Z`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    conditions.push({ datetime: { $gte: start, $lt: end } });
+  }
+  if (input.status) {
+    conditions.push({ status: input.status });
+  }
+
+  const filter = conditions.length === 0 ? {} : conditions.length === 1 ? conditions[0]! : { $and: conditions };
+
+  const page = input.page && input.page > 0 ? Math.floor(input.page) : 1;
+  const limit = input.limit && input.limit > 0 ? Math.min(Math.floor(input.limit), MAX_BROWSE_LIMIT) : DEFAULT_BROWSE_LIMIT;
+
+  const [total, fixtures] = await Promise.all([
+    Fixture.countDocuments(filter),
+    Fixture.find(filter)
+      .sort({ datetime: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+  ]);
+
+  const enrichmentById = await resolveFixtureEnrichment(fixtures);
+  const summaries = fixtures.map((fixture): PublicFixtureSummary => {
+    const enrichment = enrichmentById.get(fixture._id.toString());
+    return {
+      id: fixture._id.toString(),
+      organization_id: fixture.organization_id.toString(),
+      organization_name: enrichment?.organization_name ?? "Unknown",
+      competition_id: fixture.competition_id.toString(),
+      competition_name: enrichment?.competition_name ?? "Unknown",
+      category: enrichment?.category ?? "",
+      season: enrichment?.season ?? "",
+      home_team: enrichment?.home_team ?? { id: fixture.home_entry_id.toString(), name: "Unknown" },
+      away_team: enrichment?.away_team ?? { id: fixture.away_entry_id.toString(), name: "Unknown" },
+      venue: enrichment?.venue ?? null,
+      datetime: fixture.datetime.toISOString(),
+      status: fixture.status,
+      home_score: fixture.home_score,
+      away_score: fixture.away_score,
+      result_locked_at: fixture.result_locked_at ? fixture.result_locked_at.toISOString() : null,
+    };
+  });
+
+  return { fixtures: summaries, total, page, limit };
+}
+
+interface FixtureEnrichment {
+  organization_name: string;
+  competition_name: string;
+  category: string;
+  season: string;
+  home_team: { id: string; name: string };
+  away_team: { id: string; name: string };
+  venue: { id: string; name: string } | null;
+}
+
+/**
+ * Batches every id lookup a page of fixtures needs (competition,
+ * organization, both entries' teams, venue) into one round trip per
+ * collection rather than resolving each fixture one at a time, and shared
+ * between browseFixtures (FR33) and listLiveFixtures (FR32) above — both
+ * need the exact same resolved-names shape, just merged with different
+ * per-fixture fields (a locked result vs. a live score).
+ */
+async function resolveFixtureEnrichment(fixtures: FixtureDocument[]): Promise<Map<string, FixtureEnrichment>> {
+  if (fixtures.length === 0) {
+    return new Map();
+  }
+
+  const competitionIds = [...new Set(fixtures.map((fixture) => fixture.competition_id.toString()))];
+  const organizationIds = [...new Set(fixtures.map((fixture) => fixture.organization_id.toString()))];
+  const entryIds = [
+    ...new Set(fixtures.flatMap((fixture) => [fixture.home_entry_id.toString(), fixture.away_entry_id.toString()])),
+  ];
+  const venueIds = [
+    ...new Set(
+      fixtures
+        .map((fixture) => (fixture.venue_id ? fixture.venue_id.toString() : null))
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+
+  const [competitions, organizations, entries, venues] = await Promise.all([
+    Competition.find({ _id: { $in: competitionIds } }),
+    Organization.find({ _id: { $in: organizationIds } }),
+    CompetitionEntry.find({ _id: { $in: entryIds } }),
+    Venue.find({ _id: { $in: venueIds } }),
+  ]);
+
+  const competitionById = new Map(competitions.map((competition) => [competition._id.toString(), competition]));
+  const organizationById = new Map(organizations.map((organization) => [organization._id.toString(), organization]));
+  const entryById = new Map(entries.map((entry) => [entry._id.toString(), entry]));
+  const venueById = new Map(venues.map((venue) => [venue._id.toString(), venue]));
+
+  const teamIds = [...new Set(entries.map((entry) => entry.team_id.toString()))];
+  const teams = await Team.find({ _id: { $in: teamIds } });
+  const teamById = new Map(teams.map((team) => [team._id.toString(), team]));
+
+  const resolveTeamSummary = (entryId: Types.ObjectId): { id: string; name: string } => {
+    const entry = entryById.get(entryId.toString());
+    const team = entry ? teamById.get(entry.team_id.toString()) : undefined;
+    return { id: team ? team._id.toString() : entryId.toString(), name: team?.name ?? "Unknown" };
+  };
+
+  const result = new Map<string, FixtureEnrichment>();
+  for (const fixture of fixtures) {
+    const competition = competitionById.get(fixture.competition_id.toString());
+    const organization = organizationById.get(fixture.organization_id.toString());
+    const venue = fixture.venue_id ? venueById.get(fixture.venue_id.toString()) : undefined;
+
+    result.set(fixture._id.toString(), {
+      organization_name: organization?.name ?? "Unknown",
+      competition_name: competition?.name ?? "Unknown",
+      category: competition?.category ?? "",
+      season: competition?.season ?? "",
+      home_team: resolveTeamSummary(fixture.home_entry_id),
+      away_team: resolveTeamSummary(fixture.away_entry_id),
+      venue: venue ? { id: venue._id.toString(), name: venue.name } : null,
+    });
+  }
+  return result;
 }
 
 export async function getFixture(requestingUser: RequestingUser, fixtureId: string): Promise<FixtureDocument> {

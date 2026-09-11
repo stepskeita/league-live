@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { CompetitionEntry } from "../models/competition-entry.model";
 import { Club } from "../models/club.model";
 import { RosterEntry } from "../models/roster-entry.model";
@@ -27,6 +28,23 @@ export interface UpdateTeamInput {
 
 export async function listTeams(requestingUser: RequestingUser): Promise<TeamDocument[]> {
   return Team.find(organizationScopeFilter(requestingUser)).sort({ name: 1 });
+}
+
+export interface ListPublicTeamsInput {
+  organization_id?: string;
+  category?: string;
+}
+
+/** FR33: the fan-facing "browse by team" filter — every Team on the platform, not scoped to a caller's own Organization. */
+export async function listPublicTeams(input: ListPublicTeamsInput): Promise<TeamDocument[]> {
+  const filter: Record<string, unknown> = {};
+  if (input.organization_id) {
+    filter.organization_id = new Types.ObjectId(input.organization_id);
+  }
+  if (input.category) {
+    filter.category = input.category;
+  }
+  return Team.find(filter).sort({ name: 1 });
 }
 
 export async function getTeam(requestingUser: RequestingUser, teamId: string): Promise<TeamDocument> {

@@ -1,4 +1,4 @@
-import type { FixtureStatus } from "./fixture";
+import type { FixtureStatus, FixtureTeamSummary, FixtureVenueSummary } from "./fixture";
 
 // FR30: the live match state maintained per fixture — a fast-read snapshot
 // cached in Redis, always rebuildable from MongoDB (Fixture + MatchEvent),
@@ -16,16 +16,22 @@ export interface LiveMatchState {
 }
 
 // FR32: one row of the public "browse every in-progress fixture" listing —
-// just enough fixture context (not the full Fixture record — notably no
-// reporter_user_id, which is an internal operational detail, not fan
-// facing) merged with its live score.
+// resolved names (same reasoning as PublicFixtureSummary in fixture.ts —
+// organization/competition/team ids alone aren't renderable by a fan-facing
+// client with no other access) merged with the fixture's live score. Not
+// the full Fixture record — notably no reporter_user_id, which is an
+// internal operational detail, not fan facing.
 export interface LiveFixtureSummary {
   fixture_id: string;
   organization_id: string;
+  organization_name: string;
   competition_id: string;
-  home_entry_id: string;
-  away_entry_id: string;
-  venue_id: string | null;
+  competition_name: string;
+  category: string;
+  season: string;
+  home_team: FixtureTeamSummary;
+  away_team: FixtureTeamSummary;
+  venue: FixtureVenueSummary | null;
   datetime: string;
   liveMatchState: LiveMatchState;
 }

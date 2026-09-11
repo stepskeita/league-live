@@ -19,3 +19,14 @@ export interface Organization {
   createdAt: string;
   updatedAt: string;
 }
+
+// FR33: just enough to populate the fan-facing "browse by country /
+// confederation / organization" filters — no contact details, which aren't
+// public information the way an Organization's name/country/confederation
+// are.
+export interface PublicOrganizationSummary {
+  id: string;
+  name: string;
+  country: string | null;
+  confederation: string | null;
+}

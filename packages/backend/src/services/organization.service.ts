@@ -124,6 +124,16 @@ export async function listOrganizations(): Promise<OrganizationDocument[]> {
   return Organization.find({}).sort({ name: 1 });
 }
 
+/**
+ * FR33: the fan-facing "browse by country / confederation / organization"
+ * filter needs to know what Organizations (and which countries/
+ * confederations) exist at all — this is the public equivalent of
+ * listOrganizations, minus organization.manage.
+ */
+export async function listPublicOrganizations(): Promise<OrganizationDocument[]> {
+  return Organization.find({}).sort({ name: 1 });
+}
+
 export async function getOrganization(organizationId: string): Promise<OrganizationDocument> {
   const organization = await Organization.findById(organizationId);
   if (!organization) {

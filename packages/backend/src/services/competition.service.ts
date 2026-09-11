@@ -1,4 +1,5 @@
 import type { CompetitionFormatConfig } from "@leaguelive/shared";
+import { Types } from "mongoose";
 import { Competition, type CompetitionDocument } from "../models/competition.model";
 import { CompetitionEntry } from "../models/competition-entry.model";
 import { Fixture } from "../models/fixture.model";
@@ -28,6 +29,28 @@ export interface UpdateCompetitionInput {
 
 export async function listCompetitions(requestingUser: RequestingUser): Promise<CompetitionDocument[]> {
   return Competition.find(organizationScopeFilter(requestingUser)).sort({ season: -1, name: 1 });
+}
+
+export interface ListPublicCompetitionsInput {
+  organization_id?: string;
+  category?: string;
+}
+
+/**
+ * FR33/FR34: the fan-facing "browse by competition / category" filter and a
+ * competition picker — every Competition on the platform, not scoped to a
+ * caller's own Organization like listCompetitions above (there is no
+ * "caller" here at all, this is public).
+ */
+export async function listPublicCompetitions(input: ListPublicCompetitionsInput): Promise<CompetitionDocument[]> {
+  const filter: Record<string, unknown> = {};
+  if (input.organization_id) {
+    filter.organization_id = new Types.ObjectId(input.organization_id);
+  }
+  if (input.category) {
+    filter.category = input.category;
+  }
+  return Competition.find(filter).sort({ season: -1, name: 1 });
 }
 
 /** FR18: "any competition they have access to" — this scoped fetch is what that means in practice. */

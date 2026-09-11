@@ -34,6 +34,19 @@ export async function listOrganizations(_req: Request, res: Response): Promise<v
   res.status(200).json({ organizations: organizations.map((organization) => organization.toJSON()) });
 }
 
+/** FR33, public — see organization.service.ts's listPublicOrganizations. */
+export async function listPublicOrganizations(_req: Request, res: Response): Promise<void> {
+  const organizations = await organizationService.listPublicOrganizations();
+  res.status(200).json({
+    organizations: organizations.map((organization) => ({
+      id: organization._id.toString(),
+      name: organization.name,
+      country: organization.country,
+      confederation: organization.confederation,
+    })),
+  });
+}
+
 const organizationParamsSchema = z.object({
   organizationId: z.string().min(1),
 });

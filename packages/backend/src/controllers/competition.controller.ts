@@ -75,6 +75,27 @@ export async function getCompetitionStandings(req: Request, res: Response): Prom
   res.status(200).json({ standings: table });
 }
 
+const listPublicCompetitionsQuerySchema = z.object({
+  organization_id: z.string().min(1).optional(),
+  category: z.string().trim().min(1).optional(),
+});
+
+/** FR33/FR34, public — see competition.service.ts's listPublicCompetitions. */
+export async function listPublicCompetitions(req: Request, res: Response): Promise<void> {
+  const query = listPublicCompetitionsQuerySchema.parse(req.query);
+  const competitions = await competitionService.listPublicCompetitions(query);
+  res.status(200).json({
+    competitions: competitions.map((competition) => ({
+      id: competition._id.toString(),
+      organization_id: competition.organization_id.toString(),
+      name: competition.name,
+      category: competition.category,
+      season: competition.season,
+      format: competition.format.type,
+    })),
+  });
+}
+
 // --- FR17: this competition's entries ---
 
 export async function listCompetitionEntries(req: Request, res: Response): Promise<void> {

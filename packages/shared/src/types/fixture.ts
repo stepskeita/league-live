@@ -46,3 +46,32 @@ export interface FixtureContext {
   home_team: FixtureTeamSummary;
   away_team: FixtureTeamSummary;
 }
+
+export interface FixtureVenueSummary {
+  id: string;
+  name: string;
+}
+
+// FR33: one row of the public "browse fixtures and results" listing — same
+// "resolve ids to names once, server side" reasoning as FixtureContext, just
+// for every fan-facing filter dimension at once (country/confederation live
+// on the Organization, category/season on the Competition) rather than the
+// two team names alone. Deliberately still no player rosters — see
+// FixtureContext's comment, same reasoning applies.
+export interface PublicFixtureSummary {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  competition_id: string;
+  competition_name: string;
+  category: string;
+  season: string;
+  home_team: FixtureTeamSummary;
+  away_team: FixtureTeamSummary;
+  venue: FixtureVenueSummary | null;
+  datetime: string;
+  status: FixtureStatus;
+  home_score: number | null;
+  away_score: number | null;
+  result_locked_at: string | null;
+}

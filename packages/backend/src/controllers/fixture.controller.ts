@@ -149,3 +149,31 @@ export async function listLiveFixtures(req: Request, res: Response): Promise<voi
   const fixtures = await fixtureService.listLiveFixtures(query);
   res.status(200).json({ fixtures });
 }
+
+const browseFixturesQuerySchema = z.object({
+  organization_id: z.string().min(1).optional(),
+  country: z.string().trim().min(1).optional(),
+  confederation: z.string().trim().min(1).optional(),
+  competition_id: z.string().min(1).optional(),
+  category: z.string().trim().min(1).optional(),
+  team_id: z.string().min(1).optional(),
+  date: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD")
+    .optional(),
+  status: z.enum(FIXTURE_STATUSES).optional(),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().optional(),
+});
+
+/**
+ * FR33: "Users can browse fixtures and results by country, confederation,
+ * organization, competition, category, team, or date" — public, same as
+ * every other fan-facing read in this router.
+ */
+export async function browseFixtures(req: Request, res: Response): Promise<void> {
+  const query = browseFixturesQuerySchema.parse(req.query);
+  const result = await fixtureService.browseFixtures(query);
+  res.status(200).json(result);
+}

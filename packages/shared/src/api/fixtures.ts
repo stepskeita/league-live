@@ -1,4 +1,4 @@
-import type { Fixture, FixtureContext, FixtureStatus } from "../types/fixture";
+import type { Fixture, FixtureContext, FixtureStatus, PublicFixtureSummary } from "../types/fixture";
 import type { LiveFixtureSummary, LiveMatchState } from "../types/live-match-state";
 import type { ApiClient } from "./client";
 
@@ -20,6 +20,27 @@ export interface LiveMatchStateResponse {
 
 export interface ListLiveFixturesResponse {
   fixtures: LiveFixtureSummary[];
+}
+
+export interface BrowseFixturesInput {
+  organization_id?: string;
+  country?: string;
+  confederation?: string;
+  competition_id?: string;
+  category?: string;
+  team_id?: string;
+  /** YYYY-MM-DD — matches any fixture within that calendar day, UTC. */
+  date?: string;
+  status?: FixtureStatus;
+  page?: number;
+  limit?: number;
+}
+
+export interface BrowseFixturesResponse {
+  fixtures: PublicFixtureSummary[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export interface CreateFixtureInput {
@@ -71,6 +92,24 @@ export function createFixturesApi(client: ApiClient) {
       client.get<LiveMatchStateResponse>(`/fixtures/${fixtureId}/live`, undefined, { auth: false }),
     listLive: (query: { organization_id?: string; country?: string; category?: string } = {}) =>
       client.get<ListLiveFixturesResponse>("/fixtures/live", query, { auth: false }),
+    /** FR33: fixtures and results, filterable and paginated — see fixture.service.ts's browseFixtures. */
+    browse: (query: BrowseFixturesInput = {}) =>
+      client.get<BrowseFixturesResponse>(
+        "/fixtures/browse",
+        {
+          organization_id: query.organization_id,
+          country: query.country,
+          confederation: query.confederation,
+          competition_id: query.competition_id,
+          category: query.category,
+          team_id: query.team_id,
+          date: query.date,
+          status: query.status,
+          page: query.page !== undefined ? String(query.page) : undefined,
+          limit: query.limit !== undefined ? String(query.limit) : undefined,
+        },
+        { auth: false },
+      ),
   };
 }
 

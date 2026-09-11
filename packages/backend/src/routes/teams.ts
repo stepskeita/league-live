@@ -4,6 +4,7 @@ import {
   createTeam,
   deleteTeam,
   getTeam,
+  listPublicTeams,
   listRoster,
   listTeams,
   removeFromRoster,
@@ -14,6 +15,12 @@ import { requirePermission } from "../middleware/require-permission";
 import { asyncHandler } from "../utils/async-handler";
 
 const router = Router();
+
+// FR33, public: registered before router.use(authenticate) below — same
+// ordering reason as organizations'/competitions' "/public" routes.
+// "/public" (one segment) is also registered before "/:teamId" (also one
+// segment, gated) further down.
+router.get("/public", asyncHandler(listPublicTeams));
 
 // FR16: register teams. FR20: manage a team's player roster per season —
 // both gated behind roster.manage.

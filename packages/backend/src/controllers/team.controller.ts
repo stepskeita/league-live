@@ -33,6 +33,25 @@ export async function getTeam(req: Request, res: Response): Promise<void> {
   res.status(200).json({ team: team.toJSON() });
 }
 
+const listPublicTeamsQuerySchema = z.object({
+  organization_id: z.string().min(1).optional(),
+  category: z.string().trim().min(1).optional(),
+});
+
+/** FR33, public — see team.service.ts's listPublicTeams. */
+export async function listPublicTeams(req: Request, res: Response): Promise<void> {
+  const query = listPublicTeamsQuerySchema.parse(req.query);
+  const teams = await teamService.listPublicTeams(query);
+  res.status(200).json({
+    teams: teams.map((team) => ({
+      id: team._id.toString(),
+      organization_id: team.organization_id.toString(),
+      name: team.name,
+      category: team.category,
+    })),
+  });
+}
+
 const updateTeamSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   category: z.string().trim().min(1).max(100).optional(),

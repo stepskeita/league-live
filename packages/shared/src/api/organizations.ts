@@ -1,4 +1,4 @@
-import type { Organization, OrganizationType } from "../types/organization";
+import type { Organization, OrganizationType, PublicOrganizationSummary } from "../types/organization";
 import type { Contact } from "../types/common";
 import type { User } from "../types/user";
 import type { ApiClient } from "./client";
@@ -9,6 +9,10 @@ export interface OrganizationResponse {
 
 export interface ListOrganizationsResponse {
   organizations: Organization[];
+}
+
+export interface ListPublicOrganizationsResponse {
+  organizations: PublicOrganizationSummary[];
 }
 
 export interface CreateOrganizationInput {
@@ -42,6 +46,8 @@ export interface UpdateOrganizationInput {
 export function createOrganizationsApi(client: ApiClient) {
   return {
     list: () => client.get<ListOrganizationsResponse>("/organizations"),
+    /** FR33, public — populates the fan-facing browse filters' country/confederation/organization options. */
+    listPublic: () => client.get<ListPublicOrganizationsResponse>("/organizations/public", undefined, { auth: false }),
     get: (organizationId: string) => client.get<OrganizationResponse>(`/organizations/${organizationId}`),
     /** Onboarding (FR1): creates the Organization, seeds its default roles, and creates+assigns its first admin, all in one call. */
     create: (input: CreateOrganizationInput) => client.post<CreateOrganizationResponse>("/organizations", input),

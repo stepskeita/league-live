@@ -7,6 +7,7 @@ import {
   getCompetitionStandings,
   listCompetitionEntries,
   listCompetitions,
+  listPublicCompetitions,
   removeCompetitionEntry,
   updateCompetition,
 } from "../controllers/competition.controller";
@@ -20,6 +21,11 @@ const router = Router();
 // Express tries routes in registration order and stops at the first match,
 // so a request matching this specific path never reaches it.
 router.get("/:competitionId/standings", asyncHandler(getCompetitionStandings));
+
+// FR33, public, same ordering reason as above — "/public" (one segment) is
+// also registered before "/:competitionId" (also one segment, gated)
+// further down.
+router.get("/public", asyncHandler(listPublicCompetitions));
 
 // FR13/FR14/FR15: create/configure competitions. FR17: manage which Teams
 // are entered — both gated behind competition.manage.

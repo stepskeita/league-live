@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   assignReporter,
+  browseFixtures,
   confirmResult,
   createFixture,
   deleteFixture,
@@ -34,6 +35,9 @@ const router = Router();
 // before "/:fixtureId" (also one segment, admin-gated) further down — same
 // ordering reason "/mine" is registered before "/:fixtureId".
 router.get("/live", asyncHandler(listLiveFixtures));
+// FR33: the broader "browse fixtures and results" listing — same public,
+// pre-authenticate registration as "/live" just above.
+router.get("/browse", asyncHandler(browseFixtures));
 router.get("/:fixtureId/live", asyncHandler(getFixtureLiveState));
 
 // Everything else: permissions differ by route (scheduling is fixture.manage,

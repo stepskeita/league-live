@@ -1,5 +1,5 @@
 import type { CompetitionEntry } from "../types/competition-entry";
-import type { Competition, CompetitionFormatConfig } from "../types/competition";
+import type { Competition, CompetitionFormatConfig, PublicCompetitionSummary } from "../types/competition";
 import type { CompetitionTableRow } from "../types/standings";
 import type { ApiClient } from "./client";
 
@@ -9,6 +9,15 @@ export interface CompetitionResponse {
 
 export interface ListCompetitionsResponse {
   competitions: Competition[];
+}
+
+export interface ListPublicCompetitionsInput {
+  organization_id?: string;
+  category?: string;
+}
+
+export interface ListPublicCompetitionsResponse {
+  competitions: PublicCompetitionSummary[];
 }
 
 export interface CreateCompetitionInput {
@@ -44,6 +53,13 @@ export interface StandingsResponse {
 export function createCompetitionsApi(client: ApiClient) {
   return {
     list: () => client.get<ListCompetitionsResponse>("/competitions"),
+    /** FR33/FR34, public — populates the fan-facing browse filters' competition/category options. */
+    listPublic: (input: ListPublicCompetitionsInput = {}) =>
+      client.get<ListPublicCompetitionsResponse>(
+        "/competitions/public",
+        { organization_id: input.organization_id, category: input.category },
+        { auth: false },
+      ),
     get: (competitionId: string) => client.get<CompetitionResponse>(`/competitions/${competitionId}`),
     create: (input: CreateCompetitionInput) => client.post<CompetitionResponse>("/competitions", input),
     update: (competitionId: string, input: UpdateCompetitionInput) =>

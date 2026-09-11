@@ -1,5 +1,5 @@
 import type { RosterEntry } from "../types/roster-entry";
-import type { Team } from "../types/team";
+import type { PublicTeamSummary, Team } from "../types/team";
 import type { ApiClient } from "./client";
 
 export interface TeamResponse {
@@ -8,6 +8,15 @@ export interface TeamResponse {
 
 export interface ListTeamsResponse {
   teams: Team[];
+}
+
+export interface ListPublicTeamsInput {
+  organization_id?: string;
+  category?: string;
+}
+
+export interface ListPublicTeamsResponse {
+  teams: PublicTeamSummary[];
 }
 
 export interface CreateTeamInput {
@@ -37,6 +46,13 @@ export interface ListRosterEntriesResponse {
 export function createTeamsApi(client: ApiClient) {
   return {
     list: () => client.get<ListTeamsResponse>("/teams"),
+    /** FR33, public — populates the fan-facing browse filters' team options. */
+    listPublic: (input: ListPublicTeamsInput = {}) =>
+      client.get<ListPublicTeamsResponse>(
+        "/teams/public",
+        { organization_id: input.organization_id, category: input.category },
+        { auth: false },
+      ),
     get: (teamId: string) => client.get<TeamResponse>(`/teams/${teamId}`),
     create: (input: CreateTeamInput) => client.post<TeamResponse>("/teams", input),
     update: (teamId: string, input: UpdateTeamInput) => client.patch<TeamResponse>(`/teams/${teamId}`, input),

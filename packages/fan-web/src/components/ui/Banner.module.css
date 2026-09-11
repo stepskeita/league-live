@@ -1,0 +1,18 @@
+.banner {
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: 14px;
+  margin-bottom: var(--space-4);
+}
+
+.error {
+  background: #fdeced;
+  color: #a11d23;
+  border: 1px solid #f6c6c8;
+}
+
+.info {
+  background: #f1f1f3;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}

@@ -8,3 +8,11 @@ export interface Team {
   createdAt: string;
   updatedAt: string;
 }
+
+// FR33: just enough to populate the fan-facing "browse by team" filter.
+export interface PublicTeamSummary {
+  id: string;
+  organization_id: string;
+  name: string;
+  category: string;
+}

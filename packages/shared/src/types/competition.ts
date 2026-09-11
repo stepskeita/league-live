@@ -26,3 +26,15 @@ export interface Competition {
   createdAt: string;
   updatedAt: string;
 }
+
+// FR33/FR34: just enough to populate the fan-facing "browse by competition /
+// category" filter and a competition picker — no ruleset/format.config,
+// which are admin configuration details, not fan-facing.
+export interface PublicCompetitionSummary {
+  id: string;
+  organization_id: string;
+  name: string;
+  category: string;
+  season: string;
+  format: CompetitionFormat;
+}
