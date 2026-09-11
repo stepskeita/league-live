@@ -96,6 +96,13 @@ export async function listPublicCompetitions(req: Request, res: Response): Promi
   });
 }
 
+/** FR34/FR35, public — see competition.service.ts's getPublicCompetition. */
+export async function getPublicCompetition(req: Request, res: Response): Promise<void> {
+  const { competitionId } = competitionParamsSchema.parse(req.params);
+  const competition = await competitionService.getPublicCompetition(competitionId);
+  res.status(200).json({ competition });
+}
+
 // --- FR17: this competition's entries ---
 
 export async function listCompetitionEntries(req: Request, res: Response): Promise<void> {

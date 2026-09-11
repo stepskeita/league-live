@@ -1,10 +1,15 @@
+import type { CompetitionTableRow } from "@leaguelive/shared";
 import { Types } from "mongoose";
 import { CompetitionEntry } from "../models/competition-entry.model";
 import { Club } from "../models/club.model";
+import { Competition } from "../models/competition.model";
+import { Organization } from "../models/organization.model";
 import { RosterEntry } from "../models/roster-entry.model";
 import { Team, type TeamDocument } from "../models/team.model";
+import { Venue } from "../models/venue.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { resolveOrganizationScopeForCreate } from "./organization.service";
+import { computeCompetitionTable } from "./standings.service";
 import { resolveVenueInOrganization } from "./venue.service";
 import { AppError } from "../utils/app-error";
 import { organizationScopeFilter, type RequestingUser } from "../utils/tenant-scope";
@@ -45,6 +50,86 @@ export async function listPublicTeams(input: ListPublicTeamsInput): Promise<Team
     filter.category = input.category;
   }
   return Team.find(filter).sort({ name: 1 });
+}
+
+export interface PublicTeamDetail {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  name: string;
+  category: string;
+  club_name: string;
+  venue: { id: string; name: string } | null;
+}
+
+/** FR35: a fan-facing team page's header — resolved names, same reasoning as PublicFixtureSummary. */
+export async function getPublicTeam(teamId: string): Promise<PublicTeamDetail> {
+  const team = await Team.findById(teamId);
+  if (!team) {
+    throw new AppError("Team not found", 404);
+  }
+
+  const [club, organization, venue] = await Promise.all([
+    Club.findById(team.club_id),
+    Organization.findById(team.organization_id),
+    team.venue_id ? Venue.findById(team.venue_id) : Promise.resolve(null),
+  ]);
+
+  return {
+    id: team._id.toString(),
+    organization_id: team.organization_id.toString(),
+    organization_name: organization?.name ?? "Unknown",
+    name: team.name,
+    category: team.category,
+    club_name: club?.name ?? "Unknown",
+    venue: venue ? { id: venue._id.toString(), name: venue.name } : null,
+  };
+}
+
+export interface TeamSeasonStat {
+  competition_id: string;
+  competition_name: string;
+  category: string;
+  season: string;
+  table: CompetitionTableRow;
+}
+
+/**
+ * FR35: "season stats" for a Team, one row per Competition it's entered in
+ * — reuses computeCompetitionTable (FR31) rather than a separate
+ * computation, since a Team's season stats *are* its row in each
+ * competition's standings table (played/won/drawn/lost/goals/points/rank).
+ */
+export async function getTeamSeasonStats(teamId: string): Promise<TeamSeasonStat[]> {
+  const entries = await CompetitionEntry.find({ team_id: teamId });
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const competitions = await Competition.find({ _id: { $in: entries.map((entry) => entry.competition_id) } });
+  const competitionById = new Map(competitions.map((competition) => [competition._id.toString(), competition]));
+
+  const stats: TeamSeasonStat[] = [];
+  for (const entry of entries) {
+    const competition = competitionById.get(entry.competition_id.toString());
+    if (!competition) {
+      continue;
+    }
+    const table = await computeCompetitionTable(entry.competition_id.toString());
+    const row = table.find((r) => r.competition_entry_id === entry._id.toString());
+    if (!row) {
+      continue;
+    }
+    stats.push({
+      competition_id: competition._id.toString(),
+      competition_name: competition.name,
+      category: competition.category,
+      season: competition.season,
+      table: row,
+    });
+  }
+
+  return stats.sort((a, b) => b.season.localeCompare(a.season) || a.competition_name.localeCompare(b.competition_name));
 }
 
 export async function getTeam(requestingUser: RequestingUser, teamId: string): Promise<TeamDocument> {

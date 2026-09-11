@@ -5,6 +5,7 @@ import {
   deleteCompetition,
   getCompetition,
   getCompetitionStandings,
+  getPublicCompetition,
   listCompetitionEntries,
   listCompetitions,
   listPublicCompetitions,
@@ -21,6 +22,9 @@ const router = Router();
 // Express tries routes in registration order and stops at the first match,
 // so a request matching this specific path never reaches it.
 router.get("/:competitionId/standings", asyncHandler(getCompetitionStandings));
+
+// FR34/FR35, public — a fan-facing competition page's header.
+router.get("/:competitionId/public", asyncHandler(getPublicCompetition));
 
 // FR33, public, same ordering reason as above — "/public" (one segment) is
 // also registered before "/:competitionId" (also one segment, gated)

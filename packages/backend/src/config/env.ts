@@ -19,6 +19,19 @@ const envSchema = z.object({
   PLATFORM_OPERATOR_EMAIL: z.string().email().default("admin@leaguelive.dev"),
   PLATFORM_OPERATOR_NAME: z.string().min(1).default("Platform Operator"),
   PLATFORM_OPERATOR_PASSWORD: z.string().min(8).default(PLATFORM_OPERATOR_DEFAULT_PASSWORD),
+
+  // FR36: web push. Unlike the JWT secrets above, there's no meaningful dev
+  // default for a VAPID keypair (it identifies this server to push
+  // services, a real keypair or nothing) — left unset, notification.service
+  // treats push as not configured and every send becomes a no-op rather
+  // than the server failing to start. Generate a pair with
+  // `npx web-push generate-vapid-keys`.
+  // Preprocessed so an empty string (e.g. a literal `VAPID_PUBLIC_KEY=` left
+  // in .env, exactly what .env.example ships) is treated the same as the
+  // variable being absent altogether, not a validation failure.
+  VAPID_PUBLIC_KEY: z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional()),
+  VAPID_PRIVATE_KEY: z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional()),
+  VAPID_SUBJECT: z.string().min(1).default("mailto:admin@leaguelive.dev"),
 });
 
 export type Env = z.infer<typeof envSchema>;

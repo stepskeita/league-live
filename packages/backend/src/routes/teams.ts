@@ -3,7 +3,10 @@ import {
   addToRoster,
   createTeam,
   deleteTeam,
+  getPublicRoster,
+  getPublicTeam,
   getTeam,
+  getTeamSeasonStats,
   listPublicTeams,
   listRoster,
   listTeams,
@@ -21,6 +24,12 @@ const router = Router();
 // "/public" (one segment) is also registered before "/:teamId" (also one
 // segment, gated) further down.
 router.get("/public", asyncHandler(listPublicTeams));
+
+// FR35, public — a fan-facing team page. Two segments, so there's no
+// ordering conflict with "/public" or the gated "/:teamId" below either way.
+router.get("/:teamId/public", asyncHandler(getPublicTeam));
+router.get("/:teamId/season-stats", asyncHandler(getTeamSeasonStats));
+router.get("/:teamId/roster/public", asyncHandler(getPublicRoster));
 
 // FR16: register teams. FR20: manage a team's player roster per season —
 // both gated behind roster.manage.

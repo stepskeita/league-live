@@ -11,6 +11,7 @@ import fixturesRouter from "./routes/fixtures";
 import healthRouter from "./routes/health";
 import leagueSystemsRouter from "./routes/league-systems";
 import moderationRouter from "./routes/moderation";
+import notificationsRouter from "./routes/notifications";
 import organizationsRouter from "./routes/organizations";
 import playersRouter from "./routes/players";
 import rolesRouter from "./routes/roles";
@@ -36,6 +37,7 @@ export function createApp(): Express {
   app.use("/league-systems", leagueSystemsRouter);
   app.use("/moderation", moderationRouter);
   app.use("/audit-log-entries", auditLogEntriesRouter);
+  app.use("/notifications", notificationsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

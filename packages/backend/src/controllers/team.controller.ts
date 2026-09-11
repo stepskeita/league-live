@@ -4,6 +4,7 @@ import * as rosterService from "../services/roster.service";
 import * as teamService from "../services/team.service";
 import { requireUser } from "../utils/require-user";
 
+
 const teamParamsSchema = z.object({
   teamId: z.string().min(1),
 });
@@ -50,6 +51,32 @@ export async function listPublicTeams(req: Request, res: Response): Promise<void
       category: team.category,
     })),
   });
+}
+
+/** FR35, public — a fan-facing team page's header. */
+export async function getPublicTeam(req: Request, res: Response): Promise<void> {
+  const { teamId } = teamParamsSchema.parse(req.params);
+  const team = await teamService.getPublicTeam(teamId);
+  res.status(200).json({ team });
+}
+
+/** FR35, public — see team.service.ts's getTeamSeasonStats. */
+export async function getTeamSeasonStats(req: Request, res: Response): Promise<void> {
+  const { teamId } = teamParamsSchema.parse(req.params);
+  const stats = await teamService.getTeamSeasonStats(teamId);
+  res.status(200).json({ stats });
+}
+
+const listPublicRosterQuerySchema = z.object({
+  season: z.string().trim().min(1).optional(),
+});
+
+/** FR35, public — see roster.service.ts's listPublicRoster. */
+export async function getPublicRoster(req: Request, res: Response): Promise<void> {
+  const { teamId } = teamParamsSchema.parse(req.params);
+  const { season } = listPublicRosterQuerySchema.parse(req.query);
+  const roster = await rosterService.listPublicRoster(teamId, season);
+  res.status(200).json({ roster });
 }
 
 const updateTeamSchema = z.object({

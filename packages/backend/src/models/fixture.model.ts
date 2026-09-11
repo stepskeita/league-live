@@ -10,6 +10,13 @@ export interface FixtureAttrs {
   venue_id: Types.ObjectId | null;
   datetime: Date;
   status: FixtureStatus;
+  // FR34: which round of a knockout (or group_and_knockout) competition
+  // this fixture belongs to — e.g. "Quarterfinal", "Semifinal", "Final".
+  // Free-form (competitions define their own round names, same reasoning as
+  // Competition.category), null for a league-format fixture where rounds
+  // don't apply. Purely descriptive/grouping — nothing here computes or
+  // enforces bracket progression.
+  round: string | null;
   // FR19: set only via a dedicated reporter.assign gated action — see
   // fixture.service.ts's assignReporter/unassignReporter.
   reporter_user_id: Types.ObjectId | null;
@@ -64,6 +71,12 @@ const fixtureSchema = new Schema<FixtureDocument>(
       required: true,
       enum: FIXTURE_STATUSES,
       default: "scheduled",
+    },
+    round: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      default: null,
     },
     reporter_user_id: {
       type: Schema.Types.ObjectId,

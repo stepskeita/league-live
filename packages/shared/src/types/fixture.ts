@@ -14,6 +14,9 @@ export interface Fixture {
   venue_id: string | null;
   datetime: string;
   status: FixtureStatus;
+  // FR34: which round of a knockout (or group_and_knockout) competition
+  // this belongs to (e.g. "Semifinal") — null for a league-format fixture.
+  round: string | null;
   // FR19: assigned via a dedicated reporter.assign gated action, not the
   // general fixture.manage update.
   reporter_user_id: string | null;
@@ -71,6 +74,7 @@ export interface PublicFixtureSummary {
   venue: FixtureVenueSummary | null;
   datetime: string;
   status: FixtureStatus;
+  round: string | null;
   home_score: number | null;
   away_score: number | null;
   result_locked_at: string | null;

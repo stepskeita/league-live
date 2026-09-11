@@ -51,6 +51,8 @@ export interface CreateFixtureInput {
   /** ISO date string. */
   datetime: string;
   status?: FixtureStatus;
+  /** FR34: which knockout round this fixture belongs to, e.g. "Semifinal" — leave unset for a league-format fixture. */
+  round?: string | null;
 }
 
 export interface UpdateFixtureInput {
@@ -59,6 +61,7 @@ export interface UpdateFixtureInput {
   venue_id?: string | null;
   datetime?: string;
   status?: FixtureStatus;
+  round?: string | null;
 }
 
 export function createFixturesApi(client: ApiClient) {

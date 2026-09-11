@@ -1,5 +1,7 @@
+import type { PlayerPosition } from "@leaguelive/shared";
 import { Player } from "../models/player.model";
 import { RosterEntry, type RosterEntryDocument } from "../models/roster-entry.model";
+import { Team } from "../models/team.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getTeam } from "./team.service";
 import { AppError } from "../utils/app-error";
@@ -28,6 +30,57 @@ export async function listRoster(
     filter.season = season;
   }
   return RosterEntry.find(filter).sort({ season: -1 });
+}
+
+export interface PublicRosterEntry {
+  id: string;
+  player_id: string;
+  player_name: string;
+  position: PlayerPosition;
+  season: string;
+}
+
+/**
+ * FR35: a fan-facing team page's squad list — resolved player names, same
+ * reasoning as every other public read in this pass. Unlike listRoster
+ * above, there's no Organization scoping to enforce (this is public), so it
+ * goes straight through the Team record rather than getTeam's
+ * organizationScopeFilter.
+ */
+export async function listPublicRoster(teamId: string, season?: string): Promise<PublicRosterEntry[]> {
+  const team = await Team.findById(teamId);
+  if (!team) {
+    throw new AppError("Team not found", 404);
+  }
+
+  const filter: Record<string, unknown> = { team_id: team._id };
+  if (season) {
+    filter.season = season;
+  }
+  const entries = await RosterEntry.find(filter).sort({ season: -1 });
+
+  const players = await Player.find({ _id: { $in: entries.map((entry) => entry.player_id) } });
+  const playerById = new Map(players.map((player) => [player._id.toString(), player]));
+
+  const result: PublicRosterEntry[] = [];
+  for (const entry of entries) {
+    const player = playerById.get(entry.player_id.toString());
+    // A roster entry always cascades away with its Player (see
+    // deletePlayer) — this guard is only reachable via a data integrity
+    // issue, not a normal state, so such an entry is skipped rather than
+    // rendered with a made-up position.
+    if (!player) {
+      continue;
+    }
+    result.push({
+      id: entry._id.toString(),
+      player_id: player._id.toString(),
+      player_name: player.name,
+      position: player.position,
+      season: entry.season,
+    });
+  }
+  return result;
 }
 
 export async function addToRoster(

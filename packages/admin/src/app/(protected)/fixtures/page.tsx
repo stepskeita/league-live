@@ -28,6 +28,7 @@ interface FixtureFormState {
   venue_id: string;
   datetime: string;
   status: FixtureStatus;
+  round: string;
 }
 
 /** FR18/FR19, fixture.manage gated (reporter assignment is the separate reporter.assign permission). */
@@ -227,6 +228,7 @@ export default function FixturesPage() {
               venue_id: input.venue_id || null,
               datetime: new Date(input.datetime).toISOString(),
               status: input.status,
+              round: input.round || null,
             })
           }
           onSaved={() => {
@@ -251,6 +253,7 @@ export default function FixturesPage() {
             venue_id: editing.venue_id ?? "",
             datetime: toLocalDatetimeInput(editing.datetime),
             status: editing.status,
+            round: editing.round ?? "",
           }}
           lockCompetition
           onClose={() => setEditing(null)}
@@ -261,6 +264,7 @@ export default function FixturesPage() {
               venue_id: input.venue_id || null,
               datetime: new Date(input.datetime).toISOString(),
               status: input.status,
+              round: input.round || null,
             })
           }
           onSaved={() => {
@@ -333,6 +337,7 @@ function FixtureFormModal({
       venue_id: "",
       datetime: "",
       status: "scheduled",
+      round: "",
     },
   );
   const [submitting, setSubmitting] = useState(false);
@@ -445,6 +450,14 @@ function FixtureFormModal({
             </option>
           ))}
         </Select>
+      </Field>
+
+      <Field
+        label="Round"
+        htmlFor="fixture-round"
+        hint="Only meaningful for a knockout-format competition, e.g. &quot;Quarterfinal&quot; — leave blank for a league fixture."
+      >
+        <TextInput id="fixture-round" value={form.round} onChange={(event) => setForm({ ...form, round: event.target.value })} />
       </Field>
     </Modal>
   );

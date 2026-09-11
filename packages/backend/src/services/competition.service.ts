@@ -3,6 +3,7 @@ import { Types } from "mongoose";
 import { Competition, type CompetitionDocument } from "../models/competition.model";
 import { CompetitionEntry } from "../models/competition-entry.model";
 import { Fixture } from "../models/fixture.model";
+import { Organization } from "../models/organization.model";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { resolveOrganizationScopeForCreate } from "./organization.service";
 import { AppError } from "../utils/app-error";
@@ -51,6 +52,35 @@ export async function listPublicCompetitions(input: ListPublicCompetitionsInput)
     filter.category = input.category;
   }
   return Competition.find(filter).sort({ season: -1, name: 1 });
+}
+
+export interface PublicCompetitionDetail {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  name: string;
+  category: string;
+  season: string;
+  format: CompetitionFormatConfig;
+}
+
+/** FR34/FR35, public — a fan-facing competition (table/bracket) page's header. */
+export async function getPublicCompetition(competitionId: string): Promise<PublicCompetitionDetail> {
+  const competition = await Competition.findById(competitionId);
+  if (!competition) {
+    throw new AppError("Competition not found", 404);
+  }
+  const organization = await Organization.findById(competition.organization_id);
+
+  return {
+    id: competition._id.toString(),
+    organization_id: competition.organization_id.toString(),
+    organization_name: organization?.name ?? "Unknown",
+    name: competition.name,
+    category: competition.category,
+    season: competition.season,
+    format: competition.format,
+  };
 }
 
 /** FR18: "any competition they have access to" — this scoped fetch is what that means in practice. */

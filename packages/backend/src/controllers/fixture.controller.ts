@@ -16,6 +16,7 @@ const createFixtureSchema = z.object({
   venue_id: z.string().min(1).nullable().optional(),
   datetime: z.coerce.date(),
   status: z.enum(FIXTURE_STATUSES).optional(),
+  round: z.string().trim().min(1).max(100).nullable().optional(),
 });
 
 export async function createFixture(req: Request, res: Response): Promise<void> {
@@ -52,6 +53,7 @@ const updateFixtureSchema = z.object({
   venue_id: z.string().min(1).nullable().optional(),
   datetime: z.coerce.date().optional(),
   status: z.enum(FIXTURE_STATUSES).optional(),
+  round: z.string().trim().min(1).max(100).nullable().optional(),
 });
 
 export async function updateFixture(req: Request, res: Response): Promise<void> {

@@ -3,10 +3,12 @@ import { Types } from "mongoose";
 import { CompetitionEntry } from "../models/competition-entry.model";
 import { MatchEvent, type MatchEventDocument } from "../models/match-event.model";
 import { Player } from "../models/player.model";
+import { Team } from "../models/team.model";
 import { detectMatchEventAnomalies } from "./anomaly-flag.service";
 import { recordAuditLogEntry } from "./audit-log.service";
 import { getFixture, getFixtureForReporter, resolveFixtureForReporterOrVerifier } from "./fixture.service";
-import { refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
+import { getLiveMatchState, refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
+import { notifyTeamFollowers } from "./notification.service";
 import { AppError } from "../utils/app-error";
 import { isDuplicateKeyError } from "../utils/mongo-errors";
 import type { RequestingUser } from "../utils/tenant-scope";
@@ -125,6 +127,14 @@ export async function createMatchEvent(
   // anomaly-flag.service.ts.
   await detectMatchEventAnomalies(fixture, event);
 
+  // FR36, best-effort, goals only (a card/substitution alert isn't
+  // interesting enough to page someone's phone for) — notify both sides'
+  // followers, not just the scoring team's: someone following the team that
+  // just conceded wants to know too.
+  if (event.type === "goal") {
+    await notifyGoal(homeEntry.team_id.toString(), awayEntry.team_id.toString(), fixture._id.toString());
+  }
+
   return { event, created: true };
 }
 
@@ -242,4 +252,23 @@ export async function deleteMatchEvent(requestingUser: RequestingUser, fixtureId
   });
 
   await refreshAndBroadcastLiveMatchState(fixture._id.toString());
+}
+
+/** FR36: the goal-scored push, sent to both teams' followers with the current live score. */
+async function notifyGoal(homeTeamId: string, awayTeamId: string, fixtureId: string): Promise<void> {
+  const [homeTeam, awayTeam, state] = await Promise.all([
+    Team.findById(homeTeamId),
+    Team.findById(awayTeamId),
+    getLiveMatchState(fixtureId),
+  ]);
+  if (!homeTeam || !awayTeam) {
+    return;
+  }
+
+  const payload = {
+    title: "Goal!",
+    body: `${homeTeam.name} ${state.home_score}-${state.away_score} ${awayTeam.name}`,
+    data: { fixture_id: fixtureId },
+  };
+  await Promise.all([notifyTeamFollowers(homeTeamId, payload), notifyTeamFollowers(awayTeamId, payload)]);
 }

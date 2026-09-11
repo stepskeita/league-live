@@ -36,6 +36,20 @@ export async function getPlayer(req: Request, res: Response): Promise<void> {
   res.status(200).json({ player: player.toJSON() });
 }
 
+/** FR35, public — see player.service.ts's getPublicPlayer. */
+export async function getPublicPlayer(req: Request, res: Response): Promise<void> {
+  const { playerId } = playerParamsSchema.parse(req.params);
+  const player = await playerService.getPublicPlayer(playerId);
+  res.status(200).json({ player });
+}
+
+/** FR35, public — see player.service.ts's getPlayerSeasonStats. */
+export async function getPlayerSeasonStats(req: Request, res: Response): Promise<void> {
+  const { playerId } = playerParamsSchema.parse(req.params);
+  const stats = await playerService.getPlayerSeasonStats(playerId);
+  res.status(200).json({ stats });
+}
+
 const updatePlayerSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   position: z.enum(PLAYER_POSITIONS).optional(),

@@ -11,6 +11,7 @@ import { recordAuditLogEntry } from "./audit-log.service";
 import { getCompetition } from "./competition.service";
 import { getLiveMatchState, refreshAndBroadcastLiveMatchState } from "./live-match-state.service";
 import { countGoalsByTeam } from "./match-score.service";
+import { notifyTeamFollowers } from "./notification.service";
 import { getEffectivePermissions } from "./permission.service";
 import { resolveVenueInOrganization } from "./venue.service";
 import { AppError } from "../utils/app-error";
@@ -23,6 +24,7 @@ export interface CreateFixtureInput {
   venue_id?: string | null;
   datetime: Date;
   status?: FixtureStatus;
+  round?: string | null;
 }
 
 export interface UpdateFixtureInput {
@@ -31,6 +33,7 @@ export interface UpdateFixtureInput {
   venue_id?: string | null;
   datetime?: Date;
   status?: FixtureStatus;
+  round?: string | null;
 }
 
 export interface ListFixturesInput {
@@ -207,6 +210,7 @@ export async function browseFixtures(input: BrowseFixturesInput): Promise<Browse
       venue: enrichment?.venue ?? null,
       datetime: fixture.datetime.toISOString(),
       status: fixture.status,
+      round: fixture.round,
       home_score: fixture.home_score,
       away_score: fixture.away_score,
       result_locked_at: fixture.result_locked_at ? fixture.result_locked_at.toISOString() : null,
@@ -324,6 +328,7 @@ export async function createFixture(
     venue_id: venueId,
     datetime: input.datetime,
     status: input.status ?? "scheduled",
+    round: input.round ?? null,
   });
 
   await recordAuditLogEntry({
@@ -366,6 +371,9 @@ export async function updateFixture(
   }
   if (input.status !== undefined) {
     fixture.status = input.status;
+  }
+  if (input.round !== undefined) {
+    fixture.round = input.round;
   }
 
   await fixture.save();
@@ -623,7 +631,36 @@ export async function confirmResult(requestingUser: RequestingUser, fixtureId: s
 
   await refreshAndBroadcastLiveMatchState(fixture._id.toString());
 
+  // FR36, best-effort — see match-event.service.ts's notifyGoal for the
+  // same reasoning, just the full-time equivalent.
+  await notifyFullTime(fixture);
+
   return fixture;
+}
+
+/** FR36: the full-time push, sent to both teams' followers with the official, locked score. */
+async function notifyFullTime(fixture: FixtureDocument): Promise<void> {
+  const [homeEntry, awayEntry] = await Promise.all([
+    CompetitionEntry.findById(fixture.home_entry_id),
+    CompetitionEntry.findById(fixture.away_entry_id),
+  ]);
+  if (!homeEntry || !awayEntry) {
+    return;
+  }
+  const [homeTeam, awayTeam] = await Promise.all([Team.findById(homeEntry.team_id), Team.findById(awayEntry.team_id)]);
+  if (!homeTeam || !awayTeam) {
+    return;
+  }
+
+  const payload = {
+    title: "Full Time",
+    body: `${homeTeam.name} ${fixture.home_score}-${fixture.away_score} ${awayTeam.name}`,
+    data: { fixture_id: fixture._id.toString() },
+  };
+  await Promise.all([
+    notifyTeamFollowers(homeEntry.team_id.toString(), payload),
+    notifyTeamFollowers(awayEntry.team_id.toString(), payload),
+  ]);
 }
 
 async function resolveEntryForCompetition(

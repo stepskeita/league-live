@@ -1,4 +1,8 @@
 import type { PlayerPosition } from "@leaguelive/shared";
+import { Competition } from "../models/competition.model";
+import { Fixture } from "../models/fixture.model";
+import { MatchEvent } from "../models/match-event.model";
+import { Organization } from "../models/organization.model";
 import { Player, type PlayerDocument } from "../models/player.model";
 import { RosterEntry } from "../models/roster-entry.model";
 import { recordAuditLogEntry } from "./audit-log.service";
@@ -23,6 +27,101 @@ export interface UpdatePlayerInput {
 
 export async function listPlayers(requestingUser: RequestingUser): Promise<PlayerDocument[]> {
   return Player.find(organizationScopeFilter(requestingUser)).sort({ name: 1 });
+}
+
+export interface PublicPlayerDetail {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  name: string;
+  position: PlayerPosition;
+  date_of_birth: string;
+}
+
+/** FR35, public — a fan-facing player page's header. */
+export async function getPublicPlayer(playerId: string): Promise<PublicPlayerDetail> {
+  const player = await Player.findById(playerId);
+  if (!player) {
+    throw new AppError("Player not found", 404);
+  }
+  const organization = await Organization.findById(player.organization_id);
+
+  return {
+    id: player._id.toString(),
+    organization_id: player.organization_id.toString(),
+    organization_name: organization?.name ?? "Unknown",
+    name: player.name,
+    position: player.position,
+    date_of_birth: player.date_of_birth.toISOString(),
+  };
+}
+
+export interface PlayerSeasonStat {
+  competition_id: string;
+  competition_name: string;
+  category: string;
+  season: string;
+  goals: number;
+  yellow_cards: number;
+  red_cards: number;
+}
+
+/**
+ * FR35: "season stats" for a Player — goals and cards, one row per
+ * Competition, computed from confirmed fixtures' MatchEvents (the same
+ * "derive from confirmed results" approach as standings.service.ts and
+ * discipline.service.ts). There is no per-fixture lineup/appearance record
+ * anywhere in this system (RosterEntry is team/season membership, not
+ * per-match selection), so "appearances played" isn't something this can
+ * report — only what's actually derivable: goals scored and cards shown.
+ */
+export async function getPlayerSeasonStats(playerId: string): Promise<PlayerSeasonStat[]> {
+  const events = await MatchEvent.find({ player_id: playerId, type: { $in: ["goal", "card"] } });
+  if (events.length === 0) {
+    return [];
+  }
+
+  const fixtureIds = [...new Set(events.map((event) => event.fixture_id.toString()))];
+  const confirmedFixtures = await Fixture.find({ _id: { $in: fixtureIds }, result_locked_at: { $ne: null } });
+  const confirmedFixtureById = new Map(confirmedFixtures.map((fixture) => [fixture._id.toString(), fixture]));
+
+  const competitionIds = [...new Set(confirmedFixtures.map((fixture) => fixture.competition_id.toString()))];
+  const competitions = await Competition.find({ _id: { $in: competitionIds } });
+  const competitionById = new Map(competitions.map((competition) => [competition._id.toString(), competition]));
+
+  const statsByCompetition = new Map<string, PlayerSeasonStat>();
+  for (const event of events) {
+    const fixture = confirmedFixtureById.get(event.fixture_id.toString());
+    if (!fixture) {
+      continue;
+    }
+    const competition = competitionById.get(fixture.competition_id.toString());
+    if (!competition) {
+      continue;
+    }
+    const key = competition._id.toString();
+    const stat = statsByCompetition.get(key) ?? {
+      competition_id: key,
+      competition_name: competition.name,
+      category: competition.category,
+      season: competition.season,
+      goals: 0,
+      yellow_cards: 0,
+      red_cards: 0,
+    };
+    if (event.type === "goal") {
+      stat.goals += 1;
+    } else if (event.card_color === "yellow") {
+      stat.yellow_cards += 1;
+    } else if (event.card_color === "red") {
+      stat.red_cards += 1;
+    }
+    statsByCompetition.set(key, stat);
+  }
+
+  return [...statsByCompetition.values()].sort(
+    (a, b) => b.season.localeCompare(a.season) || a.competition_name.localeCompare(b.competition_name),
+  );
 }
 
 export async function getPlayer(requestingUser: RequestingUser, playerId: string): Promise<PlayerDocument> {
